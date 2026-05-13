@@ -2,15 +2,19 @@
   "name": "sandcastle",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "src/hello.ts",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "tsx src/hello.test.ts",
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "packageManager": "pnpm@10.32.1",
   "devDependencies": {
-    "@ai-hero/sandcastle": "^0.5.10"
+    "@ai-hero/sandcastle": "^0.5.10",
+    "@types/node": "^25.7.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3"
   }
 }
