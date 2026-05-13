@@ -2,7 +2,7 @@
   "name": "sandcastle",
   "version": "1.0.0",
   "description": "",
-  "main": "index.js",
+  "main": "src/hello.ts",
   "scripts": {
     "test": "tsx src/hello.test.ts",
     "typecheck": "tsc --noEmit"
