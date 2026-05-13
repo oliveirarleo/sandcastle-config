@@ -41,14 +41,14 @@ function resolveHostPath(input: string): string {
 const sandboxMounts =
   process.env.SANDCASTLE_NO_PI_MOUNT === "1"
     ? []
-    : [{ hostPath: "~/.pi/agent" as const, sandboxPath: "~/.pi/agent" as const, readonly: true as const }];
+    : [{ hostPath: "~/.pi/agent" as const, sandboxPath: "~/.pi/agent" as const, readonly: false as const }];
 
 if (
   sandboxMounts.length > 0 &&
   !fs.existsSync(resolveHostPath("~/.pi/agent"))
 ) {
   throw new Error(
-    "The ~/.pi/agent directory is missing. Sandcastle mounts this directory read-only into each sandbox so agents can access skills and other shared resources. Either create the directory or set SANDCASTLE_NO_PI_MOUNT=1 to skip the mount.",
+    "The ~/.pi/agent directory is missing. Sandcastle mounts this directory into each sandbox so agents can access skills, settings, and sessions. Either create the directory or set SANDCASTLE_NO_PI_MOUNT=1 to skip the mount.",
   );
 }
 
