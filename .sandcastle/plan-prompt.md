@@ -4,11 +4,11 @@ Here are the open issues in the repo:
 
 <issues-json>
 
-!`bd ready --json`
+!`BD_JSON_ENVELOPE=1 bd ready --json --label ready-for-agent`
 
 </issues-json>
 
-The list above has already been filtered to issues ready for work.
+The list above has already been filtered to issues ready for work (label: `ready-for-agent`).
 
 # TASK
 

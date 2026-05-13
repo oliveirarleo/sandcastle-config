@@ -5,12 +5,13 @@
   "main": "src/hello.ts",
   "scripts": {
     "test": "tsx src/hello.test.ts",
+    "build:sc-image": "sandcastle docker build-image --dockerfile .sandcastle/Containerfile",
+    "sc": "tsx .sandcastle/main.mts",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "packageManager": "pnpm@10.32.1",
   "devDependencies": {
     "@ai-hero/sandcastle": "^0.5.10",
     "@types/node": "^25.7.0",

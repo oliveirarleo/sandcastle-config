@@ -22,7 +22,7 @@
 //   "scripts": { "sandcastle": "npx tsx .sandcastle/main.mts" }
 
 import * as sandcastle from "@ai-hero/sandcastle";
-import { podman } from "@ai-hero/sandcastle/sandboxes/podman";
+import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
 import * as os from "node:os";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -52,7 +52,26 @@ if (
   );
 }
 
-const sandboxProvider = podman({ mounts: sandboxMounts });
+// In rootless Docker, the container UID 1000 maps to a different host UID,
+// so bind-mounted ~/.pi/agent files are unreadable. Pass the opencode-go
+// API key via env so pi can authenticate without reading auth.json.
+function readOpencodeApiKey(): string | undefined {
+  try {
+    const authPath = resolveHostPath("~/.pi/agent/auth.json");
+    const auth = JSON.parse(fs.readFileSync(authPath, "utf-8"));
+    return auth["opencode-go"]?.key;
+  } catch {
+    return undefined;
+  }
+}
+
+const opencodeApiKey = readOpencodeApiKey();
+const sandboxProvider = docker({
+  mounts: sandboxMounts,
+  env: opencodeApiKey
+    ? { OPENCODE_API_KEY: opencodeApiKey }
+    : undefined,
+});
 
 // Maximum number of plan→execute→merge cycles before stopping.
 // Raise this if your backlog is large; lower it for a quick smoke-test run.
@@ -61,13 +80,14 @@ const MAX_ITERATIONS = 10;
 // Hooks run inside the sandbox before the agent starts each iteration.
 // npm install ensures the sandbox always has fresh dependencies.
 const hooks = {
-  sandbox: { onSandboxReady: [{ command: "npm install" }] },
+  sandbox: { onSandboxReady: [{ command: "pnpm install" }] },
 };
 
 // Copy node_modules from the host into the worktree before each sandbox
 // starts. Avoids a full npm install from scratch; the hook above handles
 // platform-specific binaries and any packages added since the last copy.
-const copyToWorktree = ["node_modules"];
+// .beads is included so the planner can query issues via `bd` inside the sandbox.
+const copyToWorktree = ["node_modules", ".pnpm-store", ".beads"];
 
 // ---------------------------------------------------------------------------
 // Main loop
