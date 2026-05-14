@@ -24,6 +24,7 @@ import * as path from "node:path";
 import { $ } from "zx";
 import { setTimeout } from "timers/promises";
 import { z } from "zod";
+import { BeadsIssueSchema, PlannerOutputSchema, type BeadsIssue } from "./types.mts";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -125,8 +126,6 @@ async function runWithConcurrencyLimit<T, R>(
 // ---------------------------------------------------------------------------
 // Helper: check for open issues via beads (bd)
 // ---------------------------------------------------------------------------
-
-import { BeadsIssueSchema, PlannerOutputSchema, type BeadsIssue } from "./types.mts";
 
 async function getOpenIssues(): Promise<BeadsIssue[]> {
   try {

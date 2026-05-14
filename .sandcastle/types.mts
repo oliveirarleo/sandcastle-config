@@ -6,14 +6,14 @@ export const BeadsIssueSchema = z.object({
   status: z.string(),
 });
 
+export const PlannerIssueSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  branch: z.string(),
+});
+
 export const PlannerOutputSchema = z.object({
-  issues: z.array(
-    z.object({
-      id: z.string(),
-      title: z.string(),
-      branch: z.string(),
-    }),
-  ),
+  issues: z.array(PlannerIssueSchema),
 });
 
 export type BeadsIssue = z.infer<typeof BeadsIssueSchema>;
