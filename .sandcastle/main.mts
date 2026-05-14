@@ -2,22 +2,12 @@
 // Runs indefinitely; SIGTERM triggers graceful shutdown after current iteration.
 
 import * as sandcastle from "@ai-hero/sandcastle";
-import pino from "pino";
-import { sandboxProvider, MAX_PARALLEL_TASKS, POLL_INTERVAL_MS, hooks, copyToWorktree } from "./config.mts";
+import { logger, GRACEFUL_SHUTDOWN_MS, sandboxProvider, MAX_PARALLEL_TASKS, POLL_INTERVAL_MS, hooks, copyToWorktree } from "./config.mts";
 import { waitForOpenIssues } from "./helpers/issues.mts";
 import { runExecutionPhase } from "./phases/execute.mts";
 import { runMergePhase } from "./phases/merge.mts";
 import { runPlanner } from "./phases/plan.mts";
 import type { PlannerIssue } from "./types.mts";
-
-const logger = pino({
-  level: process.env.LOG_LEVEL ?? "info",
-  transport: process.env.NODE_ENV !== "production"
-    ? { target: "pino-pretty", options: { colorize: true } }
-    : undefined,
-});
-
-const GRACEFUL_SHUTDOWN_MS = 10 * 60 * 1000;
 
 export async function main(): Promise<void> {
   process.on("unhandledRejection", (reason) =>
@@ -43,40 +33,22 @@ export async function main(): Promise<void> {
 
     // Phase 1: Plan
     let issues: PlannerIssue[];
-    try {
-      issues = await runPlanner(sandcastle.run, sandboxProvider, hooks, logger);
-    } catch (err) {
-      logger.error({ err }, "Plan phase failed — exiting");
-      break;
-    }
+    try { issues = await runPlanner(sandcastle.run, sandboxProvider, hooks, logger); }
+    catch (err) { logger.error({ err }, "Plan phase failed — exiting"); break; }
 
-    if (issues.length === 0) {
-      logger.info("No unblocked issues — exiting");
-      break;
-    }
+    if (issues.length === 0) { logger.info("No unblocked issues — exiting"); break; }
 
     // Phase 2: Execute + Review
     let completed: PlannerIssue[];
     try {
       completed = await runExecutionPhase(
-        issues,
-        sandcastle.createSandbox,
-        sandboxProvider,
-        hooks,
-        copyToWorktree,
-        MAX_PARALLEL_TASKS,
-        logger,
-      );
-    } catch (err) {
-      logger.error({ err }, "Execute phase failed — continuing");
-      continue;
-    }
+        issues, sandcastle.createSandbox, sandboxProvider,
+        hooks, copyToWorktree, MAX_PARALLEL_TASKS, logger);
+    } catch (err) { logger.error({ err }, "Execute phase failed — continuing"); continue; }
 
     const branches = completed.map((i) => i.branch);
     logger.info({ count: branches.length }, "Execution complete");
-    for (const b of branches) {
-      logger.info(`  ${b}`);
-    }
+    for (const b of branches) logger.info(`  ${b}`);
 
     if (branches.length === 0) {
       logger.info("No commits produced. Skipping merge.");
@@ -84,12 +56,8 @@ export async function main(): Promise<void> {
     }
 
     // Phase 3: Merge
-    try {
-      await runMergePhase(sandcastle.run, completed, sandboxProvider, hooks, logger);
-    } catch (err) {
-      logger.error({ err }, "Merge phase failed — continuing");
-      continue;
-    }
+    try { await runMergePhase(sandcastle.run, completed, sandboxProvider, hooks, logger); }
+    catch (err) { logger.error({ err }, "Merge phase failed — continuing"); continue; }
 
     logger.info("Branches merged.");
 
