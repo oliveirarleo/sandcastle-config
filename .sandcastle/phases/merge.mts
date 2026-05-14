@@ -67,7 +67,7 @@ export async function runMergePhase(
   let runSandbox: RunSandbox;
   let issues: PlannerIssue[];
   let provider: SandboxProvider;
-  let hks: SandboxHooks;
+  let sandboxHooks: SandboxHooks;
   let log: Logger | undefined;
   let shell: ShellExec;
 
@@ -76,7 +76,7 @@ export async function runMergePhase(
     runSandbox = runSandboxOrOpts;
     issues = completedIssues!;
     provider = sandboxProvider!;
-    hks = hooks!;
+    sandboxHooks = hooks!;
     log = logger;
     shell = defaultShell;
   } else {
@@ -84,7 +84,7 @@ export async function runMergePhase(
     runSandbox = o.runSandbox;
     issues = o.completedIssues;
     provider = o.sandboxProvider;
-    hks = o.hooks;
+    sandboxHooks = o.hooks;
     log = o.logger;
     shell = o.shell ?? defaultShell;
   }
@@ -96,7 +96,7 @@ export async function runMergePhase(
 
     try {
       await runSandbox({
-        hooks: hks,
+        hooks: sandboxHooks,
         sandbox: provider,
         name: "merger",
         maxIterations: 1,
