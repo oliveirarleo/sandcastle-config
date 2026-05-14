@@ -219,6 +219,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     completedIssues,
     sandboxProvider,
     hooks,
+    logger,
   );
 
   logger.info("Branches merged.");

@@ -5,6 +5,7 @@ import type {
   SandboxHooks,
   SandboxProvider,
 } from "@ai-hero/sandcastle";
+import type { Logger } from "pino";
 
 export interface MergeableIssue {
   branch: string;
@@ -19,8 +20,10 @@ export async function runMergePhase(
   completedIssues: MergeableIssue[],
   sandboxProvider: SandboxProvider,
   hooks: SandboxHooks,
+  logger?: Logger,
 ): Promise<void> {
   for (const issue of completedIssues) {
+    logger?.info({ branch: issue.branch, issue: issue.id }, "Merging branch");
     await runSandbox({
       hooks,
       sandbox: sandboxProvider,
@@ -28,6 +31,7 @@ export async function runMergePhase(
       maxIterations: 1,
       agent: sandcastle.pi("opencode-go/kimi-k2.6"),
       promptFile: "./.sandcastle/merge-prompt.md",
+      branchStrategy: { type: "merge-to-head" },
       promptArgs: {
         BRANCHES: `- ${issue.branch}`,
         ISSUES: `- ${issue.id}: ${issue.title}`,

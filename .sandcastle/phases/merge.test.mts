@@ -19,6 +19,7 @@ await runMergePhase(
   issues,
   {} as unknown as SandboxProvider,
   {} as unknown as SandboxHooks,
+  undefined,
 );
 
 assert.strictEqual(calls.length, 2, "should call sandcastle.run once per issue");
@@ -26,5 +27,15 @@ assert.strictEqual(calls[0]!.promptArgs!.BRANCHES, "- branch-a", "first call sho
 assert.strictEqual(calls[1]!.promptArgs!.BRANCHES, "- branch-b", "second call should merge branch-b");
 assert.strictEqual(calls[0]!.promptArgs!.ISSUES, "- issue-1: Fix A", "first call should reference issue-1");
 assert.strictEqual(calls[1]!.promptArgs!.ISSUES, "- issue-2: Fix B", "second call should reference issue-2");
+assert.deepStrictEqual(
+  calls[0]!.branchStrategy,
+  { type: "merge-to-head" },
+  "should use merge-to-head branch strategy",
+);
+assert.deepStrictEqual(
+  calls[1]!.branchStrategy,
+  { type: "merge-to-head" },
+  "should use merge-to-head branch strategy for all issues",
+);
 
 console.log("All merge phase tests passed!");
