@@ -1,15 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { SandboxHooks, SandboxProvider } from '@ai-hero/sandcastle';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { PlannerIssue, BeadsIssue } from './types.mts';
-
-// ---------------------------------------------------------------------------
-// We test the daemon orchestration logic in isolation by stubbing out all
-// heavy dependencies (sandcastle, bd, etc.) and injecting them into a
-// testable daemonLoop function that mirrors the structure of the real main().
-// ---------------------------------------------------------------------------
-
-const NOOP_SANDBOX = {} as unknown as SandboxProvider;
-const NOOP_HOOKS = {} as unknown as SandboxHooks;
 
 async function daemonLoop(deps: {
   /** Wait for open issues — returns empty to stop the daemon */
@@ -165,41 +155,25 @@ describe('daemonLoop', () => {
       },
     });
 
-    // shouldShutdown set during iteration 1 → breaks after Phase 3
-    // One more loop pass after iteration 1 finds shouldShutdown=true, but that
-    // pass's heartbeat(2) still fires before the break at the top.
-    // Actually: iteration 1 completes, shouldShutdown set via callback,
-    // loops back, iteration=2, heartbeat(2), poll returns issues → plan →
-    // execute → merge → onIterationComplete(2) → shouldShutdown check → break
-    // Actually wait — shouldShutdown check is only AFTER Phase 3. Let me think...
-    //
-    // Trace: iteration=1, heartbeat(1), poll→issues, plan, execute, merge,
-    // onIterationComplete(1) sets shouldShutdown=true, check=true → break.
-    // Returns 1.
     expect(iterations).toBe(1);
     expect(heartbeatCalls).toEqual([1]);
     expect(iterCompletes).toEqual([1]);
   });
 
-  it('continues past Phase 1 failure when planner throws on one iteration', async () => {
+  it('breaks loop when planner throws in Phase 1', async () => {
     const heartbeatCalls: number[] = [];
 
     const iterations = await daemonLoop({
       signalContext,
       heartbeat: (n) => { heartbeatCalls.push(n); },
       waitForOpenIssues: vi.fn()
-        .mockResolvedValueOnce([{ id: 'issue-1', title: 'Fix A', status: 'open' }])
-        .mockResolvedValueOnce([{ id: 'issue-2', title: 'Fix B', status: 'open' }])
-        .mockResolvedValueOnce([]),
+        .mockResolvedValueOnce([{ id: 'issue-1', title: 'Fix A', status: 'open' }]),
       runPlanner: vi.fn()
-        .mockRejectedValueOnce(new Error('planner crashed'))  // iteration 1 fails → break
-        .mockResolvedValueOnce([{ id: 'issue-2', title: 'Fix B', branch: 'branch-b' }]),  // iteration 2 succeeds
-      runExecutionPhase: vi.fn()
-        .mockResolvedValue([{ id: 'issue-2', title: 'Fix B', branch: 'branch-b' }]),
-      runMergePhase: vi.fn().mockResolvedValue(undefined),
+        .mockRejectedValueOnce(new Error('planner crashed')),
+      runExecutionPhase: vi.fn(),
+      runMergePhase: vi.fn(),
     });
 
-    // Phase 1 failure breaks the loop (planner failing → no work to do)
     expect(iterations).toBe(1);
     expect(heartbeatCalls).toEqual([1]);
   });

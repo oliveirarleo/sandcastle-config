@@ -43,28 +43,54 @@ export async function main(): Promise<void> {
 
     // Phase 1: Plan
     let issues: PlannerIssue[];
-    try { issues = await runPlanner(sandcastle.run, sandboxProvider, hooks, logger); }
-    catch (err) { logger.error({ err }, "Plan phase failed — exiting"); break; }
-    if (issues.length === 0) { logger.info("No unblocked issues — exiting"); break; }
+    try {
+      issues = await runPlanner(sandcastle.run, sandboxProvider, hooks, logger);
+    } catch (err) {
+      logger.error({ err }, "Plan phase failed — exiting");
+      break;
+    }
+
+    if (issues.length === 0) {
+      logger.info("No unblocked issues — exiting");
+      break;
+    }
 
     // Phase 2: Execute + Review
     let completed: PlannerIssue[];
     try {
       completed = await runExecutionPhase(
-        issues, sandcastle.createSandbox, sandboxProvider, hooks,
-        copyToWorktree, MAX_PARALLEL_TASKS, logger);
-    } catch (err) { logger.error({ err }, "Execute phase failed — continuing"); continue; }
+        issues,
+        sandcastle.createSandbox,
+        sandboxProvider,
+        hooks,
+        copyToWorktree,
+        MAX_PARALLEL_TASKS,
+        logger,
+      );
+    } catch (err) {
+      logger.error({ err }, "Execute phase failed — continuing");
+      continue;
+    }
+
     const branches = completed.map((i) => i.branch);
     logger.info({ count: branches.length }, "Execution complete");
-    for (const b of branches) logger.info(`  ${b}`);
+    for (const b of branches) {
+      logger.info(`  ${b}`);
+    }
+
     if (branches.length === 0) {
       logger.info("No commits produced. Skipping merge.");
       continue;
     }
 
     // Phase 3: Merge
-    try { await runMergePhase(sandcastle.run, completed, sandboxProvider, hooks, logger); }
-    catch (err) { logger.error({ err }, "Merge phase failed — continuing"); continue; }
+    try {
+      await runMergePhase(sandcastle.run, completed, sandboxProvider, hooks, logger);
+    } catch (err) {
+      logger.error({ err }, "Merge phase failed — continuing");
+      continue;
+    }
+
     logger.info("Branches merged.");
 
     if (shouldShutdown) {

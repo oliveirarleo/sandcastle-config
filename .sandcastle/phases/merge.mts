@@ -4,9 +4,12 @@ import { promisify } from "node:util";
 import type { Logger } from "pino";
 import type { PlannerIssue } from "../types.mts";
 
-const execAsync = promisify(exec);
-
 export type RunSandbox = (options: RunOptions) => Promise<RunResult>;
+
+/** Shim over child_process.exec for test injection. */
+export type ShellExec = (command: string) => Promise<{ stdout: string; stderr: string }>;
+
+const defaultShell: ShellExec = promisify(exec) as ShellExec;
 
 /**
  * Commit `.beads/issues.jsonl` if it has uncommitted changes.
@@ -17,16 +20,18 @@ export type RunSandbox = (options: RunOptions) => Promise<RunResult>;
  * Committing these changes before the merger sandbox runs prevents the
  * conflict.
  */
-async function commitBeadsExportIfDirty(logger?: Logger): Promise<void> {
+async function commitBeadsExportIfDirty(
+  shell: ShellExec,
+  logger?: Logger,
+): Promise<void> {
   try {
-    // Check if .beads/issues.jsonl has staged or unstaged changes
-    const { stdout } = await execAsync("git status --porcelain .beads/issues.jsonl");
+    const { stdout } = await shell("git status --porcelain .beads/issues.jsonl");
     if (!stdout.trim()) {
-      return; // clean, nothing to do
+      return;
     }
     logger?.info("Beads export is dirty, committing before merge");
-    await execAsync("git add .beads/issues.jsonl");
-    await execAsync('git commit -m "chore: update beads export"');
+    await shell("git add .beads/issues.jsonl");
+    await shell('git commit -m "chore: update beads export"');
     logger?.info("Committed beads export");
   } catch (err) {
     // Non-fatal: if the working tree is still dirty, the merge will fail
@@ -35,24 +40,66 @@ async function commitBeadsExportIfDirty(logger?: Logger): Promise<void> {
   }
 }
 
+export interface MergePhaseOptions {
+  runSandbox: RunSandbox;
+  completedIssues: PlannerIssue[];
+  sandboxProvider: SandboxProvider;
+  hooks: SandboxHooks;
+  logger?: Logger;
+  /** Shell executor for git/pnpm commands (injectable for testing). */
+  shell?: ShellExec;
+}
+
+export async function runMergePhase(opts: MergePhaseOptions): Promise<void>;
+/** @deprecated Use the options-object overload. */
 export async function runMergePhase(
   runSandbox: RunSandbox,
   completedIssues: PlannerIssue[],
   sandboxProvider: SandboxProvider,
   hooks: SandboxHooks,
   logger?: Logger,
+): Promise<void>;
+export async function runMergePhase(
+  runSandboxOrOpts: RunSandbox | MergePhaseOptions,
+  completedIssues?: PlannerIssue[],
+  sandboxProvider?: SandboxProvider,
+  hooks?: SandboxHooks,
+  logger?: Logger,
 ): Promise<void> {
-  for (const issue of completedIssues) {
-    logger?.info({ branch: issue.branch, issueId: issue.id }, "Merging branch");
+  let runSandbox: RunSandbox;
+  let issues: PlannerIssue[];
+  let provider: SandboxProvider;
+  let hks: SandboxHooks;
+  let log: Logger | undefined;
+  let shell: ShellExec;
 
-    // Commit any outstanding beads export before merge to avoid dirty-tree
-    // merge failures inside the sandcastle SDK's merge-to-head step.
-    await commitBeadsExportIfDirty(logger);
+  if (typeof runSandboxOrOpts === "function") {
+    // Legacy positional-args call
+    runSandbox = runSandboxOrOpts;
+    issues = completedIssues!;
+    provider = sandboxProvider!;
+    hks = hooks!;
+    log = logger;
+    shell = defaultShell;
+  } else {
+    const o = runSandboxOrOpts;
+    runSandbox = o.runSandbox;
+    issues = o.completedIssues;
+    provider = o.sandboxProvider;
+    hks = o.hooks;
+    log = o.logger;
+    shell = o.shell ?? defaultShell;
+  }
+
+  for (const issue of issues) {
+    log?.info({ branch: issue.branch, issueId: issue.id }, "Merging branch");
+
+    await commitBeadsExportIfDirty(shell, log);
 
     try {
       await runSandbox({
-        hooks,
-        sandbox: sandboxProvider,
+        hooks: hks,
+        sandbox: provider,
         name: "merger",
         maxIterations: 1,
         agent: pi("opencode-go/deepseek-v4-pro"),
@@ -64,19 +111,17 @@ export async function runMergePhase(
         },
       });
 
-      // Install dependencies after merge — merged branches may have
-      // added, removed, or updated packages.
-      logger?.info({ branch: issue.branch, issueId: issue.id }, "Running pnpm install after merge");
+      log?.info({ branch: issue.branch, issueId: issue.id }, "Running pnpm install after merge");
       try {
-        await execAsync("CI=true pnpm install --no-frozen-lockfile");
+        await shell("CI=true pnpm install --no-frozen-lockfile");
       } catch (installErr) {
-        logger?.warn(
+        log?.warn(
           { err: installErr, branch: issue.branch, issueId: issue.id },
           "pnpm install failed after merge — dependencies may be out of date",
         );
       }
     } catch (err) {
-      logger?.error(
+      log?.error(
         { err, branch: issue.branch, issueId: issue.id },
         `Merge failed for ${issue.id} (${issue.branch}), continuing with remaining branches`,
       );
