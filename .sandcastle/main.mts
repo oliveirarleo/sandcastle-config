@@ -15,11 +15,6 @@
 //
 // The outer loop repeats up to MAX_ITERATIONS times so that newly unblocked
 // issues are picked up after each round of merges.
-//
-// Usage:
-//   npx tsx .sandcastle/main.mts
-// Or add to package.json:
-//   "scripts": { "sandcastle": "npx tsx .sandcastle/main.mts" }
 
 import * as sandcastle from "@ai-hero/sandcastle";
 import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
@@ -124,8 +119,7 @@ async function waitUntilThereAreOpenIssues(): Promise<BeadsIssue[]> {
       console.log(`Found ${openIssues.length} issue(s).`);
       return openIssues;
     }
-    // await setTimeout(POLL_INTERVAL_MS);
-    return []
+    await setTimeout(POLL_INTERVAL_MS);
   }
 }
 
