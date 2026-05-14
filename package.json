@@ -13,6 +13,11 @@
   "author": "",
   "packageManager": "pnpm@10.32.1",
   "license": "ISC",
+  "pnpm": {
+    "patchedDependencies": {
+      "@ai-hero/sandcastle@0.5.10": "patches/@ai-hero__sandcastle@0.5.10.patch"
+    }
+  },
   "devDependencies": {
     "@ai-hero/sandcastle": "^0.5.10",
     "@types/node": "^25.7.0",

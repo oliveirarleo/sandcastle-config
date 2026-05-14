@@ -1,0 +1,34 @@
+diff --git a/dist/Display.js b/dist/Display.js
+index de05f314bb32d8276b917bec5f989e6d5742ce9f..9afacb233293026f5a52a6ea05a0f4845f89a4a3 100644
+--- a/dist/Display.js
++++ b/dist/Display.js
+@@ -57,6 +57,9 @@ export const FileDisplay = {
+         const appendToLog = (line) => fs
+             .writeFileString(filePath, line + "\n", { flag: "a" })
+             .pipe(Effect.ignore);
++        const appendText = (text) => fs
++            .writeFileString(filePath, text, { flag: "a" })
++            .pipe(Effect.ignore);
+         return {
+             intro: () => Effect.void,
+             status: (message, _severity) => appendToLog(message.replace(/^\[[^\]]+\] /, "")),
+@@ -88,7 +91,7 @@ export const FileDisplay = {
+                 yield* appendToLog(`${title} done (${elapsed}s)`);
+                 return result;
+             }),
+-            text: (message) => appendToLog(message),
++            text: (message) => appendText(message),
+             toolCall: (name, formattedArgs) => appendToLog(`${name}(${formattedArgs})`),
+         };
+     })),
+diff --git a/dist/TextDeltaBuffer.js b/dist/TextDeltaBuffer.js
+index 99c91059334e7af36bf888d2c14378432cc41878..2333913afa0215563a965f4d8ff8dc21107aef7f 100644
+--- a/dist/TextDeltaBuffer.js
++++ b/dist/TextDeltaBuffer.js
+@@ -1,5 +1,5 @@
+ const LENGTH_THRESHOLD = 80;
+-const DEBOUNCE_MS = 50;
++const DEBOUNCE_MS = 500;
+ /**
+  * Sentence-boundary pattern: period, exclamation, or question mark followed by a space.
+  */
