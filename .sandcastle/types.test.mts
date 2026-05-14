@@ -32,9 +32,26 @@ describe('PlannerOutputSchema', () => {
   });
 });
 
+describe('BeadsIssue labels', () => {
+  it('defaults to empty array when labels field is missing', () => {
+    const parsed = BeadsIssueSchema.parse({ id: 'test', title: 'T', status: 'open' });
+    expect(parsed.labels).toEqual([]);
+  });
+
+  it('preserves labels when present', () => {
+    const parsed = BeadsIssueSchema.parse({
+      id: 'test',
+      title: 'T',
+      status: 'open',
+      labels: ['sandcastle:planned'],
+    });
+    expect(parsed.labels).toEqual(['sandcastle:planned']);
+  });
+});
+
 describe('BeadsIssue type', () => {
   it('allows creating a valid typed issue', () => {
-    const issue: BeadsIssue = { id: 'type-test', title: 'Type Test', status: 'open' };
+    const issue: BeadsIssue = { id: 'type-test', title: 'Type Test', status: 'open', labels: [] };
     expect(issue.id).toBe('type-test');
   });
 });
