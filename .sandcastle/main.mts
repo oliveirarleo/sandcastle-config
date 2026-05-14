@@ -26,10 +26,10 @@ import {
   hooks,
   copyToWorktree,
 } from "./config.mts";
-import { PlannerOutputSchema } from "./types.mts";
 import { runWithConcurrencyLimit } from "./helpers/concurrency.mts";
 import { waitForOpenIssues } from "./helpers/issues.mts";
 import { runMergePhase } from "./phases/merge.mts";
+import { runPlanner } from "./phases/plan.mts";
 
 // ---------------------------------------------------------------------------
 // Logger
@@ -61,47 +61,18 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
 
   // -------------------------------------------------------------------------
   // Phase 1: Plan
-  //
-  // The planning agent (opus, for deeper reasoning) reads the open issue list,
-  // builds a dependency graph, and selects the issues that can be worked in
-  // parallel right now (i.e., no blocking dependencies on other open issues).
-  //
-  // It outputs a <plan> JSON block — we parse that to drive Phase 2.
   // -------------------------------------------------------------------------
-  logger.debug("About to start planner sandcastle.run...");
-  const plan = await sandcastle.run({
+  const issues = await runPlanner(
+    sandcastle.run,
+    sandboxProvider,
     hooks,
-    sandbox: sandboxProvider,
-    name: "planner",
-    // One iteration is enough: the planner just needs to read and reason,
-    // not write code.
-    maxIterations: 1,
-    // Opus for planning: dependency analysis benefits from deeper reasoning.
-    agent: sandcastle.pi("opencode-go/kimi-k2.6"),
-    promptFile: "./.sandcastle/plan-prompt.md",
-  });
-
-  logger.debug("Planner sandcastle.run returned.");
-  // Extract the <plan>…</plan> block from the agent's stdout.
-  const planMatch = plan.stdout.match(/<plan>([\s\S]*?)<\/plan>/);
-  if (!planMatch) {
-    throw new Error(
-      "Planning agent did not produce a <plan> tag.\n\n" + plan.stdout,
-    );
-  }
-
-  // The plan JSON contains an array of issues, each with id, title, branch.
-  const { issues } = PlannerOutputSchema.parse(JSON.parse(planMatch[1]!));
+    logger,
+  );
 
   if (issues.length === 0) {
     // No unblocked work — either everything is done or everything is blocked.
     logger.info("No unblocked issues to work on. Exiting.");
     break;
-  }
-
-  logger.info({ count: issues.length }, "Planning complete");
-  for (const issue of issues) {
-    logger.info(`  ${issue.id}: ${issue.title} → ${issue.branch}`);
   }
 
   // -------------------------------------------------------------------------
