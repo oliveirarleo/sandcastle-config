@@ -1,14 +1,6 @@
-import {
-	pi,
-	type RunOptions,
-	type RunResult,
-	type SandboxHooks,
-	type SandboxProvider,
-} from "@ai-hero/sandcastle";
+import { pi, type SandboxHooks, type SandboxProvider } from "@ai-hero/sandcastle";
 import type { Logger } from "pino";
-import { type PlannerIssue, PlannerOutputSchema } from "../types.mts";
-
-export type RunSandbox = (options: RunOptions) => Promise<RunResult>;
+import { type PlannerIssue, PlannerOutputSchema, type RunSandbox } from "../types.mts";
 
 /**
  * Robustly extract a JSON object from LLM agent output that may contain
@@ -20,19 +12,19 @@ export function extractPlanJson(stdout: string): string {
 		throw new Error(`Planning agent did not produce a <plan> tag.\n\n${stdout}`);
 	}
 
-	let content = planMatch[1]?.trim();
+	let content = planMatch[1]!.trim();
 
 	// Handle nested <plan> tags (LLM may emit the prompt's example literally).
 	// Extract the innermost <plan> content.
 	const inner = content.match(/<plan>([\s\S]*?)<\/plan>/);
 	if (inner) {
-		content = inner[1]?.trim();
+		content = inner[1]!.trim();
 	}
 
 	// Strip markdown code fences: ```json ... ``` or ``` ... ```
 	const fenceMatch = content.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
 	if (fenceMatch) {
-		content = fenceMatch[1]?.trim();
+		content = fenceMatch[1]!.trim();
 	}
 
 	// Find the outermost JSON object in whatever text remains.
@@ -44,6 +36,10 @@ export function extractPlanJson(stdout: string): string {
 	return jsonMatch[0];
 }
 
+/**
+ * Run the planning phase: invoke the planner agent to analyze open issues
+ * and return the list of unblocked issues to work on.
+ */
 export async function runPlanner(
 	runSandbox: RunSandbox,
 	sandboxProvider: SandboxProvider,

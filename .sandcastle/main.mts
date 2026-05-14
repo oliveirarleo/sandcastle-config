@@ -1,255 +1,103 @@
-// Parallel Planner with Review — three-phase orchestration loop
-//
-// This template drives a multi-phase workflow:
-//   Phase 1 (Plan):             An opus agent analyzes open issues, builds a
-//                               dependency graph, and outputs a <plan> JSON
-//                               listing unblocked issues with branch names.
-//   Phase 2 (Execute + Review): For each issue, a sandbox is created via
-//                               createSandbox(). The implementer runs first
-//                               (100 iterations). If it produces commits, a
-//                               reviewer runs in the same sandbox on the same
-//                               branch (1 iteration). All issue pipelines run
-//                               concurrently via Promise.allSettled().
-//   Phase 3 (Merge):            A single agent merges all completed branches
-//                               into the current branch.
-//
-// Resume support: on startup, checks bead issue labels for sandcastle:*
-// labels. If any executing/reviewing/executed/merged labels are found, the
-// planner is skipped and issues are routed directly to their correct phase.
-//
-// The outer loop repeats up to MAX_ITERATIONS times so that newly unblocked
-// issues are picked up after each round of merges.
+// Sandcastle daemon — four-phase poll loop (Plan → Execute → Merge).
+// Runs indefinitely; SIGTERM triggers graceful shutdown after current iteration.
 
 import * as sandcastle from "@ai-hero/sandcastle";
-import pino from "pino";
-import { $ } from "zx";
 import {
 	copyToWorktree,
+	GRACEFUL_SHUTDOWN_MS,
 	hooks,
-	MAX_ITERATIONS,
+	logger,
 	MAX_PARALLEL_TASKS,
 	POLL_INTERVAL_MS,
 	sandboxProvider,
 } from "./config.mts";
-import { getIssuesByLabel, waitForOpenIssues } from "./helpers/issues.mts";
-import {
-	classifyResumeLabel,
-	EXECUTED,
-	EXECUTING,
-	MERGED,
-	PLANNED,
-	REVIEWING,
-	shouldSkipPlanner,
-} from "./helpers/labels.mts";
+import { waitForOpenIssues } from "./helpers/issues.mts";
 import { runExecutionPhase } from "./phases/execute.mts";
 import { runMergePhase } from "./phases/merge.mts";
 import { runPlanner } from "./phases/plan.mts";
-import type { BeadsIssue, PlannerIssue } from "./types.mts";
+import type { PlannerIssue } from "./types.mts";
 
-// ---------------------------------------------------------------------------
-// Logger
-// ---------------------------------------------------------------------------
+export async function main(): Promise<void> {
+	process.on("unhandledRejection", (reason) =>
+		logger.error({ err: reason }, "Unhandled rejection — caught by safety net"),
+	);
 
-const logger = pino({
-	level: process.env.LOG_LEVEL ?? "info",
-	transport:
-		process.env.NODE_ENV !== "production"
-			? { target: "pino-pretty", options: { colorize: true } }
-			: undefined,
-});
-
-// ---------------------------------------------------------------------------
-// Process-level safety net
-// ---------------------------------------------------------------------------
-// Catches stray unhandled rejections (e.g. Effect defects from orDie /
-// uncaught Effect.runPromise) that would otherwise crash the process.
-process.on("unhandledRejection", (reason) => {
-	logger.error({ err: reason }, "Unhandled promise rejection caught by safety net");
-});
-
-// ---------------------------------------------------------------------------
-// Label management helpers
-// ---------------------------------------------------------------------------
-
-async function addLabel(issueId: string, label: string): Promise<void> {
-	try {
-		await $`bd update "${issueId}" --add-label ${label}`;
-		logger.debug({ issueId, label }, "Label added");
-	} catch (err) {
-		logger.warn({ err, issueId, label }, "Label add failed");
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Resume helpers
-// ---------------------------------------------------------------------------
-
-function toPlannerIssue(issue: BeadsIssue): PlannerIssue {
-	return { id: issue.id, title: issue.title, branch: `sandcastle/issue-${issue.id}` };
-}
-
-/**
- * Collect all open issues that carry sandcastle lifecycle labels,
- * deduplicated so an issue with multiple labels appears only once.
- */
-async function collectResumeIssues(logger: pino.Logger): Promise<BeadsIssue[]> {
-	const labels = [PLANNED, EXECUTING, REVIEWING, EXECUTED] as const;
-	const results = await Promise.all(labels.map((lbl) => getIssuesByLabel(lbl, logger)));
-
-	const seen = new Set<string>();
-	return results.flat().filter((issue) => {
-		if (seen.has(issue.id)) return false;
-		seen.add(issue.id);
-		return true;
+	let shouldShutdown = false;
+	process.on("SIGTERM", () => {
+		logger.info("SIGTERM received — will shut down after current iteration");
+		shouldShutdown = true;
+		setTimeout(() => {
+			logger.fatal("Graceful shutdown timeout — forcing exit");
+			process.exit(1);
+		}, GRACEFUL_SHUTDOWN_MS).unref();
 	});
-}
 
-// ---------------------------------------------------------------------------
-// Main loop
-// ---------------------------------------------------------------------------
+	let iteration = 0;
+	while (true) {
+		iteration++;
+		logger.info({ iteration }, "Heartbeat — starting iteration");
 
-// Check for resume mode — if any issues are mid-lifecycle, skip the planner
-// and route them directly to the correct phase.
-let issues: PlannerIssue[] = [];
-let needsPlanner = false;
+		const openIssues = await waitForOpenIssues(POLL_INTERVAL_MS, logger);
+		logger.info({ count: openIssues.length, iteration }, "Poll complete");
 
-try {
-	const allOpen = await waitForOpenIssues(POLL_INTERVAL_MS, logger);
-	needsPlanner = !shouldSkipPlanner(allOpen);
-	logger.info({ count: allOpen.length, needsPlanner }, "Startup check");
-} catch (err) {
-	logger.error({ err }, "Startup check failed — defaulting to fresh planner run");
-	needsPlanner = true;
-}
-
-for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
-	// -----------------------------------------------------------------------
-	// Phase 1: Plan (skipped on resume)
-	// -----------------------------------------------------------------------
-
-	if (needsPlanner) {
-		// Reset flag — subsequent iterations use the normal flow.
-		needsPlanner = false;
-
+		// Phase 1: Plan
+		let issues: PlannerIssue[];
 		try {
-			issues = await runPlanner(
-				sandcastle.run,
-				sandboxProvider,
-				hooks,
-				logger,
-				async (plannedIssues) => {
-					// Label each planned issue as sandcastle:planned
-					for (const issue of plannedIssues) {
-						await addLabel(issue.id, PLANNED);
-					}
-				},
-			);
+			issues = await runPlanner(sandcastle.run, sandboxProvider, hooks, logger);
 		} catch (err) {
-			logger.error({ err }, "Phase 1 (plan) failed — exiting loop");
+			logger.error({ err }, "Plan phase failed — exiting");
 			break;
 		}
 
 		if (issues.length === 0) {
-			logger.info("No unblocked issues to work on. Exiting.");
+			logger.info("No unblocked issues — exiting");
 			break;
 		}
-	} else {
-		// Resume mode: collect issues by sandcastle label and route to the correct phase.
-		const labeledIssues = await collectResumeIssues(logger);
 
-		const resumeIssues = labeledIssues
-			.filter((i) => classifyResumeLabel(i) === "execute")
-			.map(toPlannerIssue);
-
-		const mergeIssues = labeledIssues
-			.filter((i) => classifyResumeLabel(i) === "merge")
-			.map(toPlannerIssue);
-
-		logger.info(
-			{ executeCount: resumeIssues.length, mergeCount: mergeIssues.length },
-			"Resume routing",
-		);
-
-		issues = resumeIssues;
-
-		if (resumeIssues.length === 0 && mergeIssues.length === 0) {
-			logger.info("No resume issues found. Will run planner fresh next iteration.");
-			needsPlanner = true;
+		// Phase 2: Execute + Review
+		let completed: PlannerIssue[];
+		try {
+			completed = await runExecutionPhase(
+				issues,
+				sandcastle.createSandbox,
+				sandboxProvider,
+				hooks,
+				copyToWorktree,
+				MAX_PARALLEL_TASKS,
+				logger,
+			);
+		} catch (err) {
+			logger.error({ err }, "Execute phase failed — continuing");
 			continue;
 		}
+
+		const branches = completed.map((i) => i.branch);
+		logger.info({ count: branches.length }, "Execution complete");
+		for (const b of branches) logger.info(`  ${b}`);
+
+		if (branches.length === 0) {
+			logger.info("No commits produced. Skipping merge.");
+			continue;
+		}
+
+		// Phase 3: Merge
+		try {
+			await runMergePhase(sandcastle.run, completed, sandboxProvider, hooks, logger);
+		} catch (err) {
+			logger.error({ err }, "Merge phase failed — continuing");
+			continue;
+		}
+
+		logger.info("Branches merged.");
+
+		if (shouldShutdown) {
+			logger.info("Graceful shutdown — iteration complete");
+			break;
+		}
 	}
-
-	if (issues.length === 0) {
-		logger.info("No issues to execute. Exiting.");
-		break;
-	}
-
-	// -------------------------------------------------------------------------
-	// Phase 2: Execute + Review
-	// -------------------------------------------------------------------------
-
-	let completedIssues: PlannerIssue[];
-	try {
-		completedIssues = await runExecutionPhase(
-			issues,
-			sandcastle.createSandbox,
-			sandboxProvider,
-			hooks,
-			copyToWorktree,
-			MAX_PARALLEL_TASKS,
-			logger,
-			{
-				onImplementStart: async (issueId) => {
-					await addLabel(issueId, EXECUTING);
-				},
-				onReviewStart: async (issueId) => {
-					await addLabel(issueId, REVIEWING);
-				},
-				onExecuteComplete: async (issueId) => {
-					await addLabel(issueId, EXECUTED);
-				},
-			},
-		);
-	} catch (err) {
-		logger.error({ err }, "Phase 2 (execute) failed — skipping merge, continuing loop");
-		continue;
-	}
-
-	const completedBranches = completedIssues.map((i) => i.branch);
-
-	logger.info({ count: completedBranches.length }, "Execution complete");
-	for (const branch of completedBranches) {
-		logger.info(`  ${branch}`);
-	}
-
-	if (completedBranches.length === 0) {
-		logger.info("No commits produced. Nothing to merge.");
-		continue;
-	}
-
-	// ---------------------------------------------------------------------
-	// Phase 3: Merge
-	//
-	// Merge each completed branch into the current branch one at a time.
-	// Per-branch error isolation is handled inside runMergePhase (one
-	// failing merge does not block remaining branches). If the entire
-	// merge phase throws (e.g. sandbox provider failure), log and continue.
-	// ---------------------------------------------------------------------
-	try {
-		await runMergePhase(
-			sandcastle.run,
-			completedIssues,
-			sandboxProvider,
-			hooks,
-			logger,
-			async (issueId) => {
-				await addLabel(issueId, MERGED);
-			},
-		);
-	} catch (err) {
-		logger.error({ err }, "Phase 3 (merge) failed — continuing loop");
-		continue;
-	}
-
-	logger.info("Branches merged.");
 }
+
+main().catch((err) => {
+	logger.fatal({ err }, "Fatal error — exiting");
+	process.exit(1);
+});

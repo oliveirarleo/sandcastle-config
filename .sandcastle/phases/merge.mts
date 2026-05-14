@@ -1,18 +1,10 @@
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
-import {
-	pi,
-	type RunOptions,
-	type RunResult,
-	type SandboxHooks,
-	type SandboxProvider,
-} from "@ai-hero/sandcastle";
+import { pi, type SandboxHooks, type SandboxProvider } from "@ai-hero/sandcastle";
 import type { Logger } from "pino";
-import type { PlannerIssue } from "../types.mts";
+import type { PlannerIssue, RunSandbox } from "../types.mts";
 
 const execAsync = promisify(exec);
-
-export type RunSandbox = (options: RunOptions) => Promise<RunResult>;
 
 /**
  * Commit `.beads/issues.jsonl` if it has uncommitted changes.
@@ -47,9 +39,9 @@ async function commitBeadsExportIfDirty(logger?: Logger): Promise<void> {
  * merge loop continues.
  */
 async function installDependencies(
+	logger: Logger | undefined,
 	branch: string,
 	issueId: string,
-	logger?: Logger,
 ): Promise<void> {
 	try {
 		await execAsync("CI=true pnpm install --no-frozen-lockfile");
@@ -63,12 +55,6 @@ async function installDependencies(
 
 /**
  * Check if a branch has already been merged into HEAD.
- *
- * Uses `git branch --merged` as a secondary safety net. The authoritative
- * source is the `sandcastle:merged` label, but this catches the case where
- * a merge succeeded but the label update failed.
- *
- * The exec function is injectable for testing.
  */
 export async function isBranchMerged(
 	branch: string,
@@ -93,22 +79,20 @@ export async function runMergePhase(
 	for (const issue of completedIssues) {
 		logger?.info({ branch: issue.branch, issueId: issue.id }, "Merging branch");
 
-		// Skip merge if the branch is already merged into HEAD (safety net).
-		// This covers the case where a previous sandcastle run merged the branch
-		// but the sandcastle:merged label was not set.
-		const alreadyMerged = await isBranchMerged(issue.branch);
-		if (alreadyMerged) {
-			logger?.info(
-				{ branch: issue.branch, issueId: issue.id },
-				"Branch already merged (git branch --merged). Skipping merge, updating label.",
-			);
-			await onMergeComplete?.(issue.id);
-			continue;
-		}
-
 		await commitBeadsExportIfDirty(logger);
 
 		try {
+			// Skip merge if branch is already merged into HEAD (safety net)
+			const alreadyMerged = await isBranchMerged(issue.branch);
+			if (alreadyMerged) {
+				logger?.info(
+					{ branch: issue.branch, issueId: issue.id },
+					"Branch already merged (git branch --merged). Skipping merge, updating label.",
+				);
+				await onMergeComplete?.(issue.id);
+				continue;
+			}
+
 			await runSandbox({
 				hooks,
 				sandbox: sandboxProvider,
@@ -126,7 +110,7 @@ export async function runMergePhase(
 			await onMergeComplete?.(issue.id);
 
 			logger?.info({ branch: issue.branch, issueId: issue.id }, "Running pnpm install after merge");
-			await installDependencies(issue.branch, issue.id, logger);
+			await installDependencies(logger, issue.branch, issue.id);
 		} catch (err) {
 			logger?.error(
 				{ err, branch: issue.branch, issueId: issue.id },

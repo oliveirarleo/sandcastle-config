@@ -4,27 +4,6 @@ import { z } from "zod";
 import { $ } from "zx";
 import { type BeadsIssue, BeadsIssueSchema } from "../types.mts";
 
-export async function getOpenIssues(
-	logger?: Logger,
-	query: () => Promise<string> = async () =>
-		$`BD_JSON_ENVELOPE=1 bd ready --json --label ready-for-agent`.text(),
-): Promise<BeadsIssue[]> {
-	try {
-		const stdout = await query();
-		const parsed = JSON.parse(stdout);
-		return z.object({ data: z.array(BeadsIssueSchema) }).parse(parsed).data;
-	} catch (err) {
-		logger?.error({ err }, "Failed to query open issues");
-		return [];
-	}
-}
-
-/**
- * Query the beads database for issues that have a specific label.
- *
- * Uses `bd list --json --label <label>` under the hood. The query function
- * is injectable for testing.
- */
 export async function getIssuesByLabel(
 	label: string,
 	logger?: Logger,
@@ -41,13 +20,21 @@ export async function getIssuesByLabel(
 	}
 }
 
-/**
- * Poll for open issues at the configured interval, sleeping between
- * attempts. Returns as soon as at least one open issue is found.
- *
- * The optional `deps` parameter lets tests inject custom query and sleep
- * implementations without touching the real filesystem or timers.
- */
+export async function getOpenIssues(
+	logger?: Logger,
+	query: () => Promise<string> = async () =>
+		$`BD_JSON_ENVELOPE=1 bd ready --json --label ready-for-agent`.text(),
+): Promise<BeadsIssue[]> {
+	try {
+		const stdout = await query();
+		const parsed = JSON.parse(stdout);
+		return z.object({ data: z.array(BeadsIssueSchema) }).parse(parsed).data;
+	} catch (err) {
+		logger?.error({ err }, "Failed to query open issues");
+		return [];
+	}
+}
+
 export async function waitForOpenIssues(
 	pollIntervalMs: number,
 	logger?: Logger,
