@@ -1,6 +1,12 @@
-import assert from "assert";
-import { greet } from "./hello";
+import { describe, it, expect } from 'vitest';
+import { greet } from './hello';
 
-assert.strictEqual(greet("world"), "Hello, world!", 'greet("world") should return "Hello, world!"');
-assert.strictEqual(greet("Alice"), "Hello, Alice!", 'greet("Alice") should return "Hello, Alice!"');
-console.log("All tests passed!");
+describe('greet', () => {
+  it('returns a greeting for "world"', () => {
+    expect(greet('world')).toBe('Hello, world!');
+  });
+
+  it('returns a greeting for "Alice"', () => {
+    expect(greet('Alice')).toBe('Hello, Alice!');
+  });
+});
