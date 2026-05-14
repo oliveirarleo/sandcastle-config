@@ -27,8 +27,8 @@ import {
   copyToWorktree,
 } from "./config.mts";
 import { PlannerOutputSchema } from "./types.mts";
-import { runWithConcurrencyLimit } from "./helpers/concurrency.mts";
 import { waitForOpenIssues } from "./helpers/issues.mts";
+import { runExecutionPhase } from "./phases/execute.mts";
 import { runMergePhase } from "./phases/merge.mts";
 
 // ---------------------------------------------------------------------------
@@ -106,85 +106,17 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
 
   // -------------------------------------------------------------------------
   // Phase 2: Execute + Review
-  //
-  // For each issue, create a sandbox via createSandbox() so the implementer
-  // and reviewer share the same sandbox instance per branch. The implementer
-  // runs first; if it produces commits, the reviewer runs in the same sandbox.
-  //
-  // Promise.allSettled means one failing pipeline doesn't cancel the others.
   // -------------------------------------------------------------------------
 
-  const settled = await runWithConcurrencyLimit(
+  const completedIssues = await runExecutionPhase(
     issues,
+    sandcastle.createSandbox,
+    sandboxProvider,
+    hooks,
+    copyToWorktree,
     MAX_PARALLEL_TASKS,
-    async (issue) => {
-      const sandbox = await sandcastle.createSandbox({
-        branch: issue.branch,
-        sandbox: sandboxProvider,
-        hooks,
-        copyToWorktree,
-      });
-
-      try {
-        // Run the implementer
-        const implement = await sandbox.run({
-          name: "implementer",
-          maxIterations: 100,
-          agent: sandcastle.pi("opencode-go/deepseek-v4-pro"),
-          promptFile: "./.sandcastle/implement-prompt.md",
-          promptArgs: {
-            TASK_ID: issue.id,
-            ISSUE_TITLE: issue.title,
-            BRANCH: issue.branch,
-          },
-        });
-
-        // Only review if the implementer produced commits
-        if (implement.commits.length > 0) {
-          const review = await sandbox.run({
-            name: "reviewer",
-            maxIterations: 1,
-            agent: sandcastle.pi("opencode-go/deepseek-v4-pro"),
-            promptFile: "./.sandcastle/review-prompt.md",
-            promptArgs: {
-              BRANCH: issue.branch,
-            },
-          });
-
-          // Merge commits from both runs so the merge phase sees all of them.
-          // Each sandbox.run() only returns commits from its own run.
-          return {
-            ...review,
-            commits: [...implement.commits, ...review.commits],
-          };
-        }
-
-        return implement;
-      } finally {
-        await sandbox.close();
-      }
-    },
+    logger,
   );
-
-  // Log any agents that threw (network error, sandbox crash, etc.).
-  for (const [i, outcome] of settled.entries()) {
-    if (outcome.status === "rejected") {
-      const issue = issues[i];
-      if (issue) {
-        logger.error({ err: outcome.reason }, `✗ ${issue.id} (${issue.branch}) failed`);
-      }
-    }
-  }
-
-  // Only pass branches that actually produced commits to the merge phase.
-  // An agent that ran successfully but made no commits has nothing to merge.
-  const completedIssues = settled.flatMap((outcome, i) => {
-    const issue = issues[i];
-    if (outcome.status === "fulfilled" && outcome.value.commits.length > 0 && issue) {
-      return [issue];
-    }
-    return [];
-  });
 
   const completedBranches = completedIssues.map((i) => i.branch);
 
