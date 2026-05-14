@@ -7,6 +7,9 @@ import type { PlannerIssue } from "../types.mts";
 // Helpers
 // ---------------------------------------------------------------------------
 
+const NOOP_SANDBOX = {} as unknown as SandboxProvider;
+const NOOP_HOOKS = {} as unknown as SandboxHooks;
+
 function mockRunResult(commits: { sha: string }[] = [{ sha: "abc123" }]): SandboxRunResult {
   return { stdout: "", commits, iterations: [], logFilePath: undefined };
 }
@@ -18,6 +21,25 @@ function mockSandbox(runImpl: (opts: SandboxRunOptions) => Promise<SandboxRunRes
     close: async () => { closed = true; },
     get closed() { return closed; },
   };
+}
+
+/**
+ * Wraps {@link mockSandbox} so the test can assert that close() was called.
+ */
+function sandboxWithCloseTracker(
+  runImpl?: (opts: SandboxRunOptions) => Promise<SandboxRunResult>,
+): { createSandbox: CreateSandboxFn; wasClosed: () => boolean } {
+  let closed = false;
+  const createSandbox: CreateSandboxFn = async () => {
+    const sb = mockSandbox(runImpl);
+    const originalClose = sb.close;
+    sb.close = async () => {
+      closed = true;
+      await originalClose();
+    };
+    return sb;
+  };
+  return { createSandbox, wasClosed: () => closed };
 }
 
 // ---------------------------------------------------------------------------
@@ -34,8 +56,8 @@ function mockSandbox(runImpl: (opts: SandboxRunOptions) => Promise<SandboxRunRes
   const result = await runExecutionPhase(
     issues,
     createSandbox,
-    {} as unknown as SandboxProvider,
-    {} as unknown as SandboxHooks,
+    NOOP_SANDBOX,
+    NOOP_HOOKS,
     [],
     3,
   );
@@ -62,8 +84,8 @@ function mockSandbox(runImpl: (opts: SandboxRunOptions) => Promise<SandboxRunRes
   const result = await runExecutionPhase(
     issues,
     createSandbox,
-    {} as unknown as SandboxProvider,
-    {} as unknown as SandboxHooks,
+    NOOP_SANDBOX,
+    NOOP_HOOKS,
     [],
     3,
   );
@@ -91,8 +113,8 @@ function mockSandbox(runImpl: (opts: SandboxRunOptions) => Promise<SandboxRunRes
   const result = await runExecutionPhase(
     issues,
     createSandbox,
-    {} as unknown as SandboxProvider,
-    {} as unknown as SandboxHooks,
+    NOOP_SANDBOX,
+    NOOP_HOOKS,
     [],
     3,
   );
@@ -122,8 +144,8 @@ function mockSandbox(runImpl: (opts: SandboxRunOptions) => Promise<SandboxRunRes
   const result = await runExecutionPhase(
     issues,
     createSandbox,
-    {} as unknown as SandboxProvider,
-    {} as unknown as SandboxHooks,
+    NOOP_SANDBOX,
+    NOOP_HOOKS,
     [],
     2,
   );
@@ -152,8 +174,8 @@ function mockSandbox(runImpl: (opts: SandboxRunOptions) => Promise<SandboxRunRes
   const result = await runExecutionPhase(
     issues,
     createSandbox,
-    {} as unknown as SandboxProvider,
-    {} as unknown as SandboxHooks,
+    NOOP_SANDBOX,
+    NOOP_HOOKS,
     [],
     2,
   );
@@ -167,31 +189,18 @@ function mockSandbox(runImpl: (opts: SandboxRunOptions) => Promise<SandboxRunRes
 // ---------------------------------------------------------------------------
 
 {
-  const issues: PlannerIssue[] = [
-    { id: "issue-1", title: "Fix A", branch: "branch-a" },
-  ];
-
-  let sandboxClosed = false;
-  const createSandbox: CreateSandboxFn = async () => {
-    const sb = mockSandbox();
-    const originalClose = sb.close;
-    sb.close = async () => {
-      sandboxClosed = true;
-      await originalClose();
-    };
-    return sb;
-  };
+  const { createSandbox, wasClosed } = sandboxWithCloseTracker();
 
   await runExecutionPhase(
-    issues,
+    [{ id: "issue-1", title: "Fix A", branch: "branch-a" }],
     createSandbox,
-    {} as unknown as SandboxProvider,
-    {} as unknown as SandboxHooks,
+    NOOP_SANDBOX,
+    NOOP_HOOKS,
     [],
     3,
   );
 
-  assert.strictEqual(sandboxClosed, true, "sandbox should be closed after execution");
+  assert.strictEqual(wasClosed(), true, "sandbox should be closed after execution");
 }
 
 // ---------------------------------------------------------------------------
@@ -199,34 +208,21 @@ function mockSandbox(runImpl: (opts: SandboxRunOptions) => Promise<SandboxRunRes
 // ---------------------------------------------------------------------------
 
 {
-  const issues: PlannerIssue[] = [
-    { id: "issue-1", title: "Fix A", branch: "branch-a" },
-  ];
-
-  let sandboxClosed = false;
-  const createSandbox: CreateSandboxFn = async () => {
-    const sb = mockSandbox(async () => {
-      throw new Error("implementer crashed");
-    });
-    const originalClose = sb.close;
-    sb.close = async () => {
-      sandboxClosed = true;
-      await originalClose();
-    };
-    return sb;
-  };
+  const { createSandbox, wasClosed } = sandboxWithCloseTracker(async () => {
+    throw new Error("implementer crashed");
+  });
 
   const result = await runExecutionPhase(
-    issues,
+    [{ id: "issue-1", title: "Fix A", branch: "branch-a" }],
     createSandbox,
-    {} as unknown as SandboxProvider,
-    {} as unknown as SandboxHooks,
+    NOOP_SANDBOX,
+    NOOP_HOOKS,
     [],
     3,
   );
 
   assert.strictEqual(result.length, 0, "should return 0 completed issues when implementer crashes");
-  assert.strictEqual(sandboxClosed, true, "sandbox should be closed even after crash");
+  assert.strictEqual(wasClosed(), true, "sandbox should be closed even after crash");
 }
 
 console.log("All execute phase tests passed!");

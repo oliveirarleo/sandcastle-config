@@ -13,6 +13,16 @@ export type CreateSandboxFn = (options: {
   close: () => Promise<unknown>;
 }>;
 
+/**
+ * Run implementer + reviewer sandbox pipelines for each planned issue.
+ *
+ * Each issue gets its own sandbox. The implementer runs first; if it produces
+ * commits, a reviewer runs in the same sandbox. All issue pipelines run
+ * concurrently (bounded by {@link maxParallelTasks}). Errors in one pipeline
+ * don't cancel the others — rejected pipelines are logged and skipped.
+ *
+ * @returns The subset of issues that produced at least one commit.
+ */
 export async function runExecutionPhase(
   issues: PlannerIssue[],
   createSandbox: CreateSandboxFn,
@@ -22,53 +32,49 @@ export async function runExecutionPhase(
   maxParallelTasks: number,
   logger?: Logger,
 ): Promise<PlannerIssue[]> {
-  const settled = await runWithConcurrencyLimit(
-    issues,
-    maxParallelTasks,
-    async (issue) => {
-      const sandbox = await createSandbox({
-        branch: issue.branch,
-        sandbox: sandboxProvider,
-        hooks,
-        copyToWorktree,
+  async function executeOneIssue(issue: PlannerIssue): Promise<SandboxRunResult> {
+    const sandbox = await createSandbox({
+      branch: issue.branch,
+      sandbox: sandboxProvider,
+      hooks,
+      copyToWorktree,
+    });
+
+    try {
+      const implementResult = await sandbox.run({
+        name: "implementer",
+        maxIterations: 100,
+        agent: pi("opencode-go/kimi-k2.6"),
+        promptFile: "./.sandcastle/implement-prompt.md",
+        promptArgs: {
+          TASK_ID: issue.id,
+          ISSUE_TITLE: issue.title,
+          BRANCH: issue.branch,
+        },
       });
 
-      try {
-        const implement = await sandbox.run({
-          name: "implementer",
-          maxIterations: 100,
+      if (implementResult.commits.length > 0) {
+        const reviewResult = await sandbox.run({
+          name: "reviewer",
+          maxIterations: 1,
           agent: pi("opencode-go/kimi-k2.6"),
-          promptFile: "./.sandcastle/implement-prompt.md",
-          promptArgs: {
-            TASK_ID: issue.id,
-            ISSUE_TITLE: issue.title,
-            BRANCH: issue.branch,
-          },
+          promptFile: "./.sandcastle/review-prompt.md",
+          promptArgs: { BRANCH: issue.branch },
         });
 
-        if (implement.commits.length > 0) {
-          const review = await sandbox.run({
-            name: "reviewer",
-            maxIterations: 1,
-            agent: pi("opencode-go/kimi-k2.6"),
-            promptFile: "./.sandcastle/review-prompt.md",
-            promptArgs: {
-              BRANCH: issue.branch,
-            },
-          });
-
-          return {
-            ...review,
-            commits: [...implement.commits, ...review.commits],
-          };
-        }
-
-        return implement;
-      } finally {
-        await sandbox.close();
+        return {
+          ...reviewResult,
+          commits: [...implementResult.commits, ...reviewResult.commits],
+        };
       }
-    },
-  );
+
+      return implementResult;
+    } finally {
+      await sandbox.close();
+    }
+  }
+
+  const settled = await runWithConcurrencyLimit(issues, maxParallelTasks, executeOneIssue);
 
   for (const [i, outcome] of settled.entries()) {
     if (outcome.status === "rejected") {
