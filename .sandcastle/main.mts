@@ -30,6 +30,7 @@ import {
   copyToWorktree,
 } from "./config.mts";
 import { BeadsIssueSchema, PlannerOutputSchema, type BeadsIssue } from "./types.mts";
+import { runWithConcurrencyLimit } from "./helpers/concurrency.mts";
 
 // ---------------------------------------------------------------------------
 // Logger
@@ -42,34 +43,6 @@ const logger = pino({
       ? { target: "pino-pretty", options: { colorize: true } }
       : undefined,
 });
-
-// ---------------------------------------------------------------------------
-// Helper: run tasks with a concurrency limit
-// ---------------------------------------------------------------------------
-
-async function runWithConcurrencyLimit<T, R>(
-  items: T[],
-  limit: number,
-  fn: (item: T, index: number) => Promise<R>,
-): Promise<PromiseSettledResult<R>[]> {
-  const results: PromiseSettledResult<R>[] = new Array(items.length);
-
-  let nextIndex = 0;
-  async function worker(): Promise<void> {
-    while (nextIndex < items.length) {
-      const i = nextIndex++;
-      try {
-        const value = await fn(items[i]!, i);
-        results[i] = { status: "fulfilled", value };
-      } catch (reason) {
-        results[i] = { status: "rejected", reason };
-      }
-    }
-  }
-
-  await Promise.allSettled(Array.from({ length: limit }, () => worker()));
-  return results;
-}
 
 // ---------------------------------------------------------------------------
 // Helper: check for open issues via beads (bd)
