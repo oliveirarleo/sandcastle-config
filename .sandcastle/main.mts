@@ -77,7 +77,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     // not write code.
     maxIterations: 1,
     // Opus for planning: dependency analysis benefits from deeper reasoning.
-    agent: sandcastle.pi("opencode-go/kimi-k2.6"),
+    agent: sandcastle.pi("opencode-go/deepseek-v4-pro"),
     promptFile: "./.sandcastle/plan-prompt.md",
   });
 
@@ -130,7 +130,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
         const implement = await sandbox.run({
           name: "implementer",
           maxIterations: 100,
-          agent: sandcastle.pi("opencode-go/kimi-k2.6"),
+          agent: sandcastle.pi("opencode-go/deepseek-v4-pro"),
           promptFile: "./.sandcastle/implement-prompt.md",
           promptArgs: {
             TASK_ID: issue.id,
@@ -144,7 +144,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
           const review = await sandbox.run({
             name: "reviewer",
             maxIterations: 1,
-            agent: sandcastle.pi("opencode-go/kimi-k2.6"),
+            agent: sandcastle.pi("opencode-go/deepseek-v4-pro"),
             promptFile: "./.sandcastle/review-prompt.md",
             promptArgs: {
               BRANCH: issue.branch,
