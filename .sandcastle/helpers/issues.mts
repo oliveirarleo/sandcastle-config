@@ -1,16 +1,9 @@
 import { $ } from "zx";
 import { z } from "zod";
-import { setTimeout as sleep } from "timers/promises";
+import { setTimeout as delay } from "timers/promises";
 import type { Logger } from "pino";
 import { BeadsIssueSchema, type BeadsIssue } from "../types.mts";
 
-/**
- * Query beads for issues labelled ready-for-agent.
- *
- * @param logger      Optional pino logger for error reporting.
- * @param query       Optional override for the shell command that fetches
- *                    issue JSON. Defaults to `bd ready --json`.
- */
 export async function getOpenIssues(
   logger?: Logger,
   query: () => Promise<string> = async () =>
@@ -26,13 +19,6 @@ export async function getOpenIssues(
   }
 }
 
-/**
- * Poll until at least one open issue is found.
- *
- * @param pollIntervalMs  Milliseconds to sleep between polls.
- * @param logger          Optional pino logger for debug / info output.
- * @param deps            Optional overrides for testability.
- */
 export async function waitForOpenIssues(
   pollIntervalMs: number,
   logger?: Logger,
@@ -41,7 +27,7 @@ export async function waitForOpenIssues(
     sleep?: (ms: number) => Promise<void>;
   } = {},
 ): Promise<BeadsIssue[]> {
-  const { query, sleep: doSleep = sleep } = deps;
+  const { query, sleep = delay } = deps;
   while (true) {
     const openIssues = await getOpenIssues(logger, query);
     logger?.debug({ openIssues }, "Polled for open issues");
@@ -49,6 +35,6 @@ export async function waitForOpenIssues(
       logger?.info({ count: openIssues.length }, "Found open issues");
       return openIssues;
     }
-    await doSleep(pollIntervalMs);
+    await sleep(pollIntervalMs);
   }
 }
