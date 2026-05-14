@@ -94,51 +94,47 @@ const empty = await runPlanner(
 
 assert.deepStrictEqual(empty, [], "should return empty array for empty plan");
 
+async function assertPlanParses(
+  stdout: string,
+  expectedCount: number,
+  expectedFirstId?: string,
+): Promise<void> {
+  const result = await runPlanner(
+    () => mockRun(stdout),
+    {} as unknown as SandboxProvider,
+    {} as unknown as SandboxHooks,
+  );
+  assert.strictEqual(result.length, expectedCount);
+  if (expectedFirstId !== undefined) {
+    assert.strictEqual(result[0]!.id, expectedFirstId);
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Regression: nested <plan> tags (LLM parrots the prompt's literal example)
 // Agent emits: <plan>` tags:\n\n<plan>{"issues":[...]}</plan>
 // ---------------------------------------------------------------------------
-const nestedPlan = `<plan>\` tags:
+await assertPlanParses(`<plan>\` tags:
 
-<plan>${validPlan}</plan>`;
-const nested = await runPlanner(
-  () => mockRun(nestedPlan),
-  {} as unknown as SandboxProvider,
-  {} as unknown as SandboxHooks,
-);
-assert.strictEqual(nested.length, 2, "nested plan: should return two issues");
-assert.strictEqual(nested[0]!.id, "issue-1", "nested plan: first issue id should match");
+<plan>${validPlan}</plan>`, 2, "issue-1");
 
 // ---------------------------------------------------------------------------
 // Regression: markdown code-fenced JSON inside <plan>
 // Agent emits: <plan>\n```json\n{"issues":[...]}\n```\n</plan>
 // ---------------------------------------------------------------------------
-const fencedPlan = `<plan>
+await assertPlanParses(`<plan>
 \`\`\`json
 ${validPlan}
 \`\`\`
-</plan>`;
-const fenced = await runPlanner(
-  () => mockRun(fencedPlan),
-  {} as unknown as SandboxProvider,
-  {} as unknown as SandboxHooks,
-);
-assert.strictEqual(fenced.length, 2, "fenced plan: should return two issues");
-assert.strictEqual(fenced[0]!.id, "issue-1", "fenced plan: first issue id should match");
+</plan>`, 2, "issue-1");
 
 // ---------------------------------------------------------------------------
 // Regression: JSON with leading text preamble before the object
 // Agent emits: <plan>Here is the plan:\n{"issues":[...]}</plan>
 // ---------------------------------------------------------------------------
-const preamblePlan = `<plan>Here is the plan:
+await assertPlanParses(`<plan>Here is the plan:
 
-${validPlan}</plan>`;
-const preamble = await runPlanner(
-  () => mockRun(preamblePlan),
-  {} as unknown as SandboxProvider,
-  {} as unknown as SandboxHooks,
-);
-assert.strictEqual(preamble.length, 2, "preamble plan: should return two issues");
+${validPlan}</plan>`, 2);
 
 // ---------------------------------------------------------------------------
 // Unit: extractPlanJson with combined nesting + fencing + preamble

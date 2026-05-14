@@ -31,6 +31,7 @@ import { waitForOpenIssues } from "./helpers/issues.mts";
 import { runExecutionPhase } from "./phases/execute.mts";
 import { runMergePhase } from "./phases/merge.mts";
 import { runPlanner } from "./phases/plan.mts";
+import type { PlannerIssue } from "./types.mts";
 
 // ---------------------------------------------------------------------------
 // Logger
@@ -72,7 +73,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // -------------------------------------------------------------------------
   // Phase 1: Plan
   // -------------------------------------------------------------------------
-  let issues: Awaited<ReturnType<typeof runPlanner>>;
+  let issues: PlannerIssue[];
   try {
     issues = await runPlanner(
       sandcastle.run,
@@ -95,7 +96,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // Phase 2: Execute + Review
   // -------------------------------------------------------------------------
 
-  let completedIssues: Awaited<ReturnType<typeof runExecutionPhase>>;
+  let completedIssues: PlannerIssue[];
   try {
     completedIssues = await runExecutionPhase(
       issues,
