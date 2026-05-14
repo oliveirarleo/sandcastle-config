@@ -99,10 +99,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     break;
   }
 
-  logger.info(
-    { count: issues.length },
-    "Planning complete",
-  );
+  logger.info({ count: issues.length }, "Planning complete");
   for (const issue of issues) {
     logger.info(`  ${issue.id}: ${issue.title} → ${issue.branch}`);
   }
@@ -172,30 +169,26 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // Log any agents that threw (network error, sandbox crash, etc.).
   for (const [i, outcome] of settled.entries()) {
     if (outcome.status === "rejected") {
-      logger.error(
-        { err: outcome.reason },
-        `✗ ${issues[i]!.id} (${issues[i]!.branch}) failed`,
-      );
+      const issue = issues[i];
+      if (issue) {
+        logger.error({ err: outcome.reason }, `✗ ${issue.id} (${issue.branch}) failed`);
+      }
     }
   }
 
   // Only pass branches that actually produced commits to the merge phase.
   // An agent that ran successfully but made no commits has nothing to merge.
-  const completedIssues = settled
-    .map((outcome, i) => ({ outcome, issue: issues[i]! }))
-    .filter(
-      (entry) =>
-        entry.outcome.status === "fulfilled" &&
-        entry.outcome.value.commits.length > 0,
-    )
-    .map((entry) => entry.issue);
+  const completedIssues = settled.flatMap((outcome, i) => {
+    const issue = issues[i];
+    if (outcome.status === "fulfilled" && outcome.value.commits.length > 0 && issue) {
+      return [issue];
+    }
+    return [];
+  });
 
   const completedBranches = completedIssues.map((i) => i.branch);
 
-  logger.info(
-    { count: completedBranches.length },
-    "Execution complete",
-  );
+  logger.info({ count: completedBranches.length }, "Execution complete");
   for (const branch of completedBranches) {
     logger.info(`  ${branch}`);
   }

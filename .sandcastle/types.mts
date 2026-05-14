@@ -17,3 +17,4 @@ export const PlannerOutputSchema = z.object({
 });
 
 export type BeadsIssue = z.infer<typeof BeadsIssueSchema>;
+export type PlannerIssue = z.infer<typeof PlannerIssueSchema>;

@@ -1,6 +1,7 @@
 import assert from "assert";
 import type { RunOptions, RunResult, SandboxHooks, SandboxProvider } from "@ai-hero/sandcastle";
-import { runMergePhase, type MergeableIssue } from "./merge.mts";
+import { runMergePhase } from "./merge.mts";
+import type { PlannerIssue } from "../types.mts";
 
 const calls: RunOptions[] = [];
 
@@ -9,7 +10,7 @@ async function mockRunSandbox(options: RunOptions): Promise<RunResult> {
   return { stdout: "", commits: [], iterations: [], branch: "main" };
 }
 
-const issues: MergeableIssue[] = [
+const issues: PlannerIssue[] = [
   { branch: "branch-a", id: "issue-1", title: "Fix A" },
   { branch: "branch-b", id: "issue-2", title: "Fix B" },
 ];
