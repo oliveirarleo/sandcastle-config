@@ -15,13 +15,6 @@ export const EXECUTED = `${sandcastleLabelPrefix}executed`;
 export const REVIEWING = `${sandcastleLabelPrefix}reviewing`;
 export const MERGED = `${sandcastleLabelPrefix}merged`;
 
-/** All sandcastle:* labels, ordered by the state machine lifecycle. */
-export const ALL_LABELS = [PLANNED, EXECUTING, REVIEWING, EXECUTED, MERGED] as const;
-
-// ---------------------------------------------------------------------------
-// bd command builders
-// ---------------------------------------------------------------------------
-
 /**
  * Build a shell command that adds a label to a bead issue.
  *
@@ -30,13 +23,6 @@ export const ALL_LABELS = [PLANNED, EXECUTING, REVIEWING, EXECUTED, MERGED] as c
  */
 export function addLabelCmd(issueId: string, label: string): string {
   return `bd update "${issueId}" --add-label ${label}`;
-}
-
-/**
- * Build a shell command that removes a label from a bead issue.
- */
-export function removeLabelCmd(issueId: string, label: string): string {
-  return `bd update "${issueId}" --remove-label ${label}`;
 }
 
 /**

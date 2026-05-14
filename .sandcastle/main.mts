@@ -33,7 +33,7 @@ import {
 } from './config.mts';
 import { getIssuesByLabel, waitForOpenIssues } from './helpers/issues.mts';
 import {
-  addLabelCmd,
+  classifyResumeLabel,
   EXECUTED,
   EXECUTING,
   MERGED,
@@ -44,7 +44,7 @@ import {
 import { runExecutionPhase } from './phases/execute.mts';
 import { runMergePhase } from './phases/merge.mts';
 import { runPlanner } from './phases/plan.mts';
-import type { PlannerIssue } from './types.mts';
+import type { BeadsIssue, PlannerIssue } from './types.mts';
 
 // ---------------------------------------------------------------------------
 // Logger
@@ -71,28 +71,37 @@ process.on('unhandledRejection', (reason) => {
 // Label management helpers
 // ---------------------------------------------------------------------------
 
-/** Remove a previous sandcastle:* label and add the new one for an issue. */
-async function _transitionLabel(
-  issueId: string,
-  fromLabel: string,
-  toLabel: string,
-): Promise<void> {
-  try {
-    await $`bd update "${issueId}" --remove-label ${fromLabel} --add-label ${toLabel}`;
-    logger.debug({ issueId, from: fromLabel, to: toLabel }, 'Label transition');
-  } catch (err) {
-    logger.warn({ err, issueId, from: fromLabel, to: toLabel }, 'Label transition failed');
-  }
-}
-
-/** Add a label to an issue without removing the existing one. */
 async function addLabel(issueId: string, label: string): Promise<void> {
   try {
-    await $({ quiet: true })`${addLabelCmd(issueId, label)}`;
+    await $`bd update "${issueId}" --add-label ${label}`;
     logger.debug({ issueId, label }, 'Label added');
   } catch (err) {
     logger.warn({ err, issueId, label }, 'Label add failed');
   }
+}
+
+// ---------------------------------------------------------------------------
+// Resume helpers
+// ---------------------------------------------------------------------------
+
+function toPlannerIssue(issue: BeadsIssue): PlannerIssue {
+  return { id: issue.id, title: issue.title, branch: `sandcastle/issue-${issue.id}` };
+}
+
+/**
+ * Collect all open issues that carry sandcastle lifecycle labels,
+ * deduplicated so an issue with multiple labels appears only once.
+ */
+async function collectResumeIssues(logger: pino.Logger): Promise<BeadsIssue[]> {
+  const labels = [PLANNED, EXECUTING, REVIEWING, EXECUTED] as const;
+  const results = await Promise.all(labels.map((lbl) => getIssuesByLabel(lbl, logger)));
+
+  const seen = new Set<string>();
+  return results.flat().filter((issue) => {
+    if (seen.has(issue.id)) return false;
+    seen.add(issue.id);
+    return true;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -145,42 +154,25 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
       break;
     }
   } else {
-    // Resume mode: collect issues by label and route to correct phase.
-    // Collect issues labeled executing, reviewing, planned → execute phase.
-    // Collect issues labeled executed → merge phase.
-    // Issues labeled merged → skip.
+    // Resume mode: collect issues by sandcastle label and route to the correct phase.
+    const labeledIssues = await collectResumeIssues(logger);
 
-    const executingIssues = await getIssuesByLabel(EXECUTING, logger);
-    const reviewingIssues = await getIssuesByLabel(REVIEWING, logger);
-    const plannedIssues = await getIssuesByLabel(PLANNED, logger);
-    const executedIssues = await getIssuesByLabel(EXECUTED, logger);
+    const resumeIssues = labeledIssues
+      .filter((i) => classifyResumeLabel(i) === 'execute')
+      .map(toPlannerIssue);
 
-    // Build PlannerIssue entries from bead issues
-    const resumeIssues = [...plannedIssues, ...executingIssues, ...reviewingIssues].map((i) => ({
-      id: i.id,
-      title: i.title,
-      branch: `sandcastle/issue-${i.id}`,
-    }));
-
-    const mergeIssues = executedIssues.map((i) => ({
-      id: i.id,
-      title: i.title,
-      branch: `sandcastle/issue-${i.id}`,
-    }));
+    const mergeIssues = labeledIssues
+      .filter((i) => classifyResumeLabel(i) === 'merge')
+      .map(toPlannerIssue);
 
     logger.info(
-      {
-        executeCount: resumeIssues.length,
-        mergeCount: mergeIssues.length,
-      },
+      { executeCount: resumeIssues.length, mergeCount: mergeIssues.length },
       'Resume routing',
     );
 
     issues = resumeIssues;
 
     if (resumeIssues.length === 0 && mergeIssues.length === 0) {
-      // All issues are either merged or have no sandcastle labels.
-      // Fall back to fresh planner run next iteration.
       logger.info('No resume issues found. Will run planner fresh next iteration.');
       needsPlanner = true;
       continue;

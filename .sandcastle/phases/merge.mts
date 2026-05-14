@@ -47,9 +47,9 @@ async function commitBeadsExportIfDirty(logger?: Logger): Promise<void> {
  * merge loop continues.
  */
 async function installDependencies(
-  logger: Logger | undefined,
   branch: string,
   issueId: string,
+  logger?: Logger,
 ): Promise<void> {
   try {
     await execAsync('CI=true pnpm install --no-frozen-lockfile');
@@ -105,7 +105,7 @@ export async function runMergePhase(
       await onMergeComplete?.(issue.id);
 
       logger?.info({ branch: issue.branch, issueId: issue.id }, 'Running pnpm install after merge');
-      await installDependencies(logger, issue.branch, issue.id);
+      await installDependencies(issue.branch, issue.id, logger);
     } catch (err) {
       logger?.error(
         { err, branch: issue.branch, issueId: issue.id },
