@@ -1,7 +1,7 @@
 import type { RunOptions, RunResult, SandboxHooks, SandboxProvider } from "@ai-hero/sandcastle";
 import { describe, expect, it } from "vitest";
 import type { PlannerIssue } from "../types.mts";
-import { runMergePhase } from "./merge.mts";
+import { isBranchMerged, runMergePhase } from "./merge.mts";
 
 const NOOP_SANDBOX = {} as unknown as SandboxProvider;
 const NOOP_HOOKS = {} as unknown as SandboxHooks;
@@ -76,5 +76,92 @@ describe("runMergePhase", () => {
 		).resolves.toBeUndefined();
 
 		expect(failingCalls).toHaveLength(2);
+	});
+
+	it("calls onMergeComplete callback after successful merge", async () => {
+		const completed: string[] = [];
+		const onMergeComplete = (issueId: string) => {
+			completed.push(issueId);
+			return Promise.resolve();
+		};
+
+		async function mockRunSandbox(_opts: RunOptions): Promise<RunResult> {
+			return { stdout: "", commits: [], iterations: [], branch: "main" };
+		}
+
+		await runMergePhase(
+			mockRunSandbox,
+			[{ branch: "branch-a", id: "issue-1", title: "Fix A" }],
+			NOOP_SANDBOX,
+			NOOP_HOOKS,
+			undefined,
+			onMergeComplete,
+		);
+
+		expect(completed).toEqual(["issue-1"]);
+	});
+
+	it("does not call onMergeComplete when merge fails", async () => {
+		const completed: string[] = [];
+		const onMergeComplete = (issueId: string) => {
+			completed.push(issueId);
+			return Promise.resolve();
+		};
+
+		async function mockRunSandbox(_opts: RunOptions): Promise<RunResult> {
+			throw new Error("merge conflict");
+		}
+
+		await runMergePhase(
+			mockRunSandbox,
+			[{ branch: "branch-a", id: "issue-1", title: "Fix A" }],
+			NOOP_SANDBOX,
+			NOOP_HOOKS,
+			undefined,
+			onMergeComplete,
+		);
+
+		expect(completed).toEqual([]);
+	});
+});
+
+describe("isBranchMerged", () => {
+	it("returns true when branch is listed in --merged output", async () => {
+		const result = await isBranchMerged("main", async () => ({
+			stdout: "  main\n* current-branch\n  feature-branch\n",
+			stderr: "",
+		}));
+		expect(result).toBe(true);
+	});
+
+	it("returns true for another branch listed in --merged output", async () => {
+		const result = await isBranchMerged("feature-branch", async () => ({
+			stdout: "  main\n* current\n  feature-branch\n",
+			stderr: "",
+		}));
+		expect(result).toBe(true);
+	});
+
+	it("returns false when git command fails", async () => {
+		const result = await isBranchMerged("any-branch", async () => {
+			throw new Error("git failed");
+		});
+		expect(result).toBe(false);
+	});
+
+	it("returns false for empty stdout", async () => {
+		const result = await isBranchMerged("any-branch", async () => ({
+			stdout: "",
+			stderr: "",
+		}));
+		expect(result).toBe(false);
+	});
+
+	it("returns false when branch not in --merged output", async () => {
+		const result = await isBranchMerged("missing-branch", async () => ({
+			stdout: "  main\n* current\n  feature-branch\n",
+			stderr: "",
+		}));
+		expect(result).toBe(false);
 	});
 });

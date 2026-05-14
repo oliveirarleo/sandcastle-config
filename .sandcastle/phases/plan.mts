@@ -49,6 +49,7 @@ export async function runPlanner(
 	sandboxProvider: SandboxProvider,
 	hooks: SandboxHooks,
 	logger?: Logger,
+	onPlanComplete?: (issues: PlannerIssue[]) => Promise<void>,
 ): Promise<PlannerIssue[]> {
 	logger?.debug("Running planner sandbox...");
 
@@ -63,6 +64,8 @@ export async function runPlanner(
 
 	const json = extractPlanJson(plan.stdout);
 	const { issues } = PlannerOutputSchema.parse(JSON.parse(json));
+
+	await onPlanComplete?.(issues);
 
 	logger?.info({ count: issues.length }, "Planning complete");
 	for (const issue of issues) {

@@ -4,6 +4,7 @@ export const BeadsIssueSchema = z.object({
 	id: z.string(),
 	title: z.string(),
 	status: z.string(),
+	labels: z.array(z.string()).optional().default([]),
 });
 
 export const PlannerIssueSchema = z.object({

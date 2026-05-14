@@ -165,4 +165,98 @@ describe("runExecutionPhase", () => {
 		expect(result).toHaveLength(0);
 		expect(wasClosed()).toBe(true);
 	});
+
+	it("calls onImplementStart when implementer begins", async () => {
+		const calls: string[] = [];
+		const callbacks = {
+			onImplementStart: (issueId: string) => {
+				calls.push(`implement:${issueId}`);
+				return Promise.resolve();
+			},
+		};
+
+		await runExecutionPhase(
+			[{ id: "issue-1", title: "Fix A", branch: "branch-a" }],
+			async () => mockSandbox(),
+			NOOP_SANDBOX,
+			NOOP_HOOKS,
+			[],
+			3,
+			undefined,
+			callbacks,
+		);
+
+		expect(calls).toEqual(["implement:issue-1"]);
+	});
+
+	it("calls onReviewStart when reviewer begins", async () => {
+		const calls: string[] = [];
+		const callbacks = {
+			onReviewStart: (issueId: string) => {
+				calls.push(`review:${issueId}`);
+				return Promise.resolve();
+			},
+		};
+
+		await runExecutionPhase(
+			[{ id: "issue-1", title: "Fix A", branch: "branch-a" }],
+			async () => mockSandbox(),
+			NOOP_SANDBOX,
+			NOOP_HOOKS,
+			[],
+			3,
+			undefined,
+			callbacks,
+		);
+
+		expect(calls).toEqual(["review:issue-1"]);
+	});
+
+	it("calls onExecuteComplete after implement + review complete", async () => {
+		const calls: string[] = [];
+		const callbacks = {
+			onExecuteComplete: (issueId: string) => {
+				calls.push(`complete:${issueId}`);
+				return Promise.resolve();
+			},
+		};
+
+		const result = await runExecutionPhase(
+			[{ id: "issue-1", title: "Fix A", branch: "branch-a" }],
+			async () => mockSandbox(),
+			NOOP_SANDBOX,
+			NOOP_HOOKS,
+			[],
+			3,
+			undefined,
+			callbacks,
+		);
+
+		expect(result).toHaveLength(1);
+		expect(calls).toEqual(["complete:issue-1"]);
+	});
+
+	it("does not call onExecuteComplete when implementer produces no commits", async () => {
+		const calls: string[] = [];
+		const callbacks = {
+			onExecuteComplete: (issueId: string) => {
+				calls.push(`complete:${issueId}`);
+				return Promise.resolve();
+			},
+		};
+
+		const result = await runExecutionPhase(
+			[{ id: "issue-1", title: "Fix A", branch: "branch-a" }],
+			async () => mockSandbox(async () => mockRunResult([])),
+			NOOP_SANDBOX,
+			NOOP_HOOKS,
+			[],
+			3,
+			undefined,
+			callbacks,
+		);
+
+		expect(result).toHaveLength(0);
+		expect(calls).toEqual([]);
+	});
 });

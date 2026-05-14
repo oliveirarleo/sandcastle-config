@@ -86,7 +86,8 @@ describe("runPlanner", () => {
 	});
 
 	it("handles nested <plan> tags (LLM parrots prompt example)", async () => {
-		const nestedPlan = `<plan>\` tags:
+		const nestedPlan = `<plan>
+\` tags:
 
 <plan>${validPlan}</plan>`;
 		const nested = await runPlanner(() => mockRun(nestedPlan), NOOP_SANDBOX, NOOP_HOOKS);
@@ -116,7 +117,8 @@ ${validPlan}</plan>`;
 
 describe("extractPlanJson", () => {
 	it("handles combined nesting + fencing + preamble", () => {
-		const combined = `<plan>\` tags:
+		const combined = `<plan>
+\` tags:
 
 <plan>
 \`\`\`json
@@ -126,5 +128,44 @@ ${validPlan}
 </plan>`;
 		const combinedJson = JSON.parse(extractPlanJson(combined));
 		expect(combinedJson.issues).toHaveLength(2);
+	});
+});
+
+describe("runPlanner with onPlanComplete", () => {
+	it("calls onPlanComplete with planned issues", async () => {
+		let captured: { id: string }[] = [];
+		const onPlanComplete = async (issues: { id: string }[]) => {
+			captured = issues;
+		};
+
+		const issues = await runPlanner(
+			() => mockRun(`<plan>${validPlan}</plan>`),
+			NOOP_SANDBOX,
+			NOOP_HOOKS,
+			undefined,
+			onPlanComplete,
+		);
+
+		expect(issues).toHaveLength(2);
+		expect(captured).toHaveLength(2);
+		expect(captured[0]?.id).toBe("issue-1");
+	});
+
+	it("calls onPlanComplete even for empty plan", async () => {
+		let called = false;
+		const onPlanComplete = async (_issues: { id: string }[]) => {
+			called = true;
+		};
+
+		const emptyPlan = JSON.stringify({ issues: [] });
+		await runPlanner(
+			() => mockRun(`<plan>${emptyPlan}</plan>`),
+			NOOP_SANDBOX,
+			NOOP_HOOKS,
+			undefined,
+			onPlanComplete,
+		);
+
+		expect(called).toBe(true);
 	});
 });

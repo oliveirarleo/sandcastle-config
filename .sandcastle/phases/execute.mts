@@ -13,6 +13,25 @@ import type { PlannerIssue } from "../types.mts";
 
 const execAsync = promisify(exec);
 
+// ---------------------------------------------------------------------------
+// Label callbacks
+// ---------------------------------------------------------------------------
+
+/**
+ * Callbacks for updating bead issue labels during the execute phase.
+ *
+ * These are called at key lifecycle points so sandcastle can persist phase
+ * state. When a crash occurs, the labels tell sandcastle where to resume.
+ */
+export interface ExecuteLabelCallbacks {
+	/** Called when the implementer agent starts running for an issue. */
+	onImplementStart?: (issueId: string) => Promise<void>;
+	/** Called when the reviewer agent starts running for an issue. */
+	onReviewStart?: (issueId: string) => Promise<void>;
+	/** Called after implement + review complete successfully (commits produced). */
+	onExecuteComplete?: (issueId: string) => Promise<void>;
+}
+
 export type CreateSandboxFn = (options: {
 	branch: string;
 	sandbox: SandboxProvider;
@@ -41,6 +60,7 @@ export async function runExecutionPhase(
 	copyToWorktree: string[],
 	maxParallelTasks: number,
 	logger?: Logger,
+	labelCallbacks?: ExecuteLabelCallbacks,
 ): Promise<PlannerIssue[]> {
 	async function executeOneIssue(issue: PlannerIssue): Promise<SandboxRunResult> {
 		const sandbox = await createSandbox({
@@ -51,6 +71,8 @@ export async function runExecutionPhase(
 		});
 
 		try {
+			await labelCallbacks?.onImplementStart?.(issue.id);
+
 			const implementResult = await sandbox.run({
 				name: "implementer",
 				maxIterations: 100,
@@ -82,6 +104,8 @@ export async function runExecutionPhase(
 					);
 				}
 
+				await labelCallbacks?.onReviewStart?.(issue.id);
+
 				const reviewResult = await sandbox.run({
 					name: "reviewer",
 					maxIterations: 1,
@@ -89,6 +113,8 @@ export async function runExecutionPhase(
 					promptFile: "./.sandcastle/review-prompt.md",
 					promptArgs: { BRANCH: issue.branch },
 				});
+
+				await labelCallbacks?.onExecuteComplete?.(issue.id);
 
 				return {
 					...reviewResult,
