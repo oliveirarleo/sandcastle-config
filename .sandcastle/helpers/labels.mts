@@ -55,7 +55,44 @@ export function stripLabelsCmd(): string {
     'bd label list-all',
     `grep '${sandcastleLabelPrefix}'`,
     'while IFS= read -r label; do',
-    `  bd label remove "$label"`,
+    '  bd label remove "$label"',
     'done',
   ].join(' | ');
+}
+
+// ---------------------------------------------------------------------------
+// Resume routing helpers
+// ---------------------------------------------------------------------------
+
+import type { BeadsIssue } from '../types.mts';
+
+/** Labels that indicate the planner should be skipped on startup. */
+const RESUME_LABELS = new Set([EXECUTING, REVIEWING, EXECUTED, MERGED]);
+
+/**
+ * Determine if the planner phase should be skipped based on the current
+ * labels of open issues.
+ *
+ * - If only `sandcastle:planned` (or no sandcastle labels) are present → run planner fresh.
+ * - If any executing/reviewing/executed/merged labels are present → resume mode (skip planner).
+ */
+export function shouldSkipPlanner(openIssues: BeadsIssue[]): boolean {
+  return openIssues.some((issue) => issue.labels.some((lbl) => RESUME_LABELS.has(lbl)));
+}
+
+/**
+ * Classify which phase an issue should be routed to during resume.
+ *
+ * The label with the latest state in the lifecycle determines routing.
+ */
+export function classifyResumeLabel(issue: BeadsIssue): 'execute' | 'merge' | 'skip' {
+  const labels = new Set(issue.labels);
+
+  if (labels.has(MERGED)) return 'skip';
+  if (labels.has(EXECUTED)) return 'merge';
+  if (labels.has(REVIEWING)) return 'execute';
+  if (labels.has(EXECUTING)) return 'execute';
+  if (labels.has(PLANNED)) return 'execute';
+
+  return 'skip';
 }
