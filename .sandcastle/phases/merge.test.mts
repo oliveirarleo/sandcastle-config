@@ -3,6 +3,9 @@ import type { RunOptions, RunResult, SandboxHooks, SandboxProvider } from '@ai-h
 import { runMergePhase } from './merge.mts';
 import type { PlannerIssue } from '../types.mts';
 
+const NOOP_SANDBOX = {} as unknown as SandboxProvider;
+const NOOP_HOOKS = {} as unknown as SandboxHooks;
+
 describe('runMergePhase', () => {
   it('calls sandcastle.run once per issue with correct arguments', async () => {
     const calls: RunOptions[] = [];
@@ -20,8 +23,8 @@ describe('runMergePhase', () => {
     await runMergePhase(
       mockRunSandbox,
       issues,
-      {} as unknown as SandboxProvider,
-      {} as unknown as SandboxHooks,
+      NOOP_SANDBOX,
+      NOOP_HOOKS,
       undefined,
     );
 

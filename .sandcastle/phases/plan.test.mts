@@ -9,8 +9,8 @@ const validPlan = JSON.stringify({
   ],
 });
 
-async function mockRun(planStdout: string): Promise<RunResult> {
-  return { stdout: planStdout, commits: [], iterations: [], branch: 'main' };
+async function mockRun(stdout: string): Promise<RunResult> {
+  return { stdout, commits: [], iterations: [], branch: 'main' };
 }
 
 function captureRun(stdout: string, calls: RunOptions[]) {
