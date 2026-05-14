@@ -24,6 +24,7 @@ import * as path from "node:path";
 import { $ } from "zx";
 import { setTimeout } from "timers/promises";
 import { z } from "zod";
+import { runWithConcurrencyLimit } from "./helpers/concurrency.mjs";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -82,45 +83,6 @@ const MAX_PARALLEL_TASKS = Number(process.env.SANDCASTLE_MAX_PARALLEL ?? "3");
 // How long to sleep between polls for new open issues (milliseconds).
 // Default: 5 minutes. Override with SANDCASTLE_POLL_MS env var.
 const POLL_INTERVAL_MS = Number(process.env.SANDCASTLE_POLL_MS ?? "300000");
-
-// ---------------------------------------------------------------------------
-// Helper: run tasks with a concurrency limit
-// ---------------------------------------------------------------------------
-
-async function runWithConcurrencyLimit<T, R>(
-  items: T[],
-  limit: number,
-  fn: (item: T, index: number) => Promise<R>,
-): Promise<PromiseSettledResult<R>[]> {
-  const results: PromiseSettledResult<R>[] = new Array(items.length);
-  const executing: Promise<void>[] = [];
-
-  for (let i = 0; i < items.length; i++) {
-    const p = Promise.resolve().then(() => fn(items[i]!, i)).then(
-      (value) => { results[i] = { status: "fulfilled", value }; },
-      (reason) => { results[i] = { status: "rejected", reason }; },
-    );
-
-    executing.push(p);
-
-    if (executing.length >= limit) {
-      await Promise.race(executing);
-      // Remove settled promises from the executing array
-      for (let j = executing.length - 1; j >= 0; j--) {
-        const settled = await Promise.race([
-          executing[j]!.then(() => true, () => true),
-          Promise.resolve(false),
-        ]);
-        if (settled) {
-          executing.splice(j, 1);
-        }
-      }
-    }
-  }
-
-  await Promise.all(executing);
-  return results;
-}
 
 // ---------------------------------------------------------------------------
 // Helper: check for open issues via beads (bd)
