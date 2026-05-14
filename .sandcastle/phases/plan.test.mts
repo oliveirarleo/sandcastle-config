@@ -19,7 +19,7 @@ const validPlan = JSON.stringify({
   ],
 });
 
-const captureRun = (stdout: string) => async (opts: RunOptions): Promise<RunResult> => {
+const captureRun = (stdout: string) => (opts: RunOptions): Promise<RunResult> => {
   calls.push(opts);
   return mockRun(stdout);
 };
@@ -46,7 +46,7 @@ assert.strictEqual(calls[0]!.promptFile, "./.sandcastle/plan-prompt.md", "should
 await assert.rejects(
   () =>
     runPlanner(
-      async () => mockRun("No plan here"),
+      () => mockRun("No plan here"),
       {} as unknown as SandboxProvider,
       {} as unknown as SandboxHooks,
     ),
@@ -60,7 +60,7 @@ await assert.rejects(
 await assert.rejects(
   () =>
     runPlanner(
-      async () => mockRun("<plan>not json</plan>"),
+      () => mockRun("<plan>not json</plan>"),
       {} as unknown as SandboxProvider,
       {} as unknown as SandboxHooks,
     ),
@@ -74,7 +74,7 @@ await assert.rejects(
 await assert.rejects(
   () =>
     runPlanner(
-      async () => mockRun(`<plan>${JSON.stringify({ issues: [{ id: "only-id" }] })}</plan>`),
+      () => mockRun(`<plan>${JSON.stringify({ issues: [{ id: "only-id" }] })}</plan>`),
       {} as unknown as SandboxProvider,
       {} as unknown as SandboxHooks,
     ),
@@ -87,7 +87,7 @@ await assert.rejects(
 // ---------------------------------------------------------------------------
 const emptyPlan = JSON.stringify({ issues: [] });
 const empty = await runPlanner(
-  async () => mockRun(`<plan>${emptyPlan}</plan>`),
+  () => mockRun(`<plan>${emptyPlan}</plan>`),
   {} as unknown as SandboxProvider,
   {} as unknown as SandboxHooks,
 );

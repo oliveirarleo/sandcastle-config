@@ -4,13 +4,17 @@ import { PlannerOutputSchema, type PlannerIssue } from "../types.mts";
 
 export type RunSandbox = (options: RunOptions) => Promise<RunResult>;
 
+/**
+ * Run the planning phase: invoke the planner agent to analyze open issues
+ * and return the list of unblocked issues to work on.
+ */
 export async function runPlanner(
   runSandbox: RunSandbox,
   sandboxProvider: SandboxProvider,
   hooks: SandboxHooks,
   logger?: Logger,
 ): Promise<PlannerIssue[]> {
-  logger?.info("Starting planner");
+  logger?.debug("Running planner sandbox...");
 
   const plan = await runSandbox({
     name: "planner",
