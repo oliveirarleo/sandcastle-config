@@ -126,23 +126,7 @@ async function runWithConcurrencyLimit<T, R>(
 // Helper: check for open issues via beads (bd)
 // ---------------------------------------------------------------------------
 
-const BeadsIssueSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  status: z.string(),
-});
-
-const PlannerOutputSchema = z.object({
-  issues: z.array(
-    z.object({
-      id: z.string(),
-      title: z.string(),
-      branch: z.string(),
-    }),
-  ),
-});
-
-type BeadsIssue = z.infer<typeof BeadsIssueSchema>;
+import { BeadsIssueSchema, PlannerOutputSchema, type BeadsIssue } from "./types.mts";
 
 async function getOpenIssues(): Promise<BeadsIssue[]> {
   try {

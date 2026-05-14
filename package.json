@@ -4,7 +4,7 @@
   "description": "",
   "main": "src/hello.ts",
   "scripts": {
-    "test": "tsx src/hello.test.ts",
+    "test": "tsx .sandcastle/types.test.mts",
     "build:sc-image": "sandcastle docker build-image --dockerfile .sandcastle/Containerfile",
     "sc": "tsx .sandcastle/main.mts",
     "typecheck": "tsc --noEmit"
