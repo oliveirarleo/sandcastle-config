@@ -1,149 +1,134 @@
-import assert from "assert";
-import type { RunOptions, RunResult, SandboxHooks, SandboxProvider } from "@ai-hero/sandcastle";
-import { runPlanner, extractPlanJson } from "./plan.mts";
-
-// ---------------------------------------------------------------------------
-// Happy path — valid <plan> with issues
-// ---------------------------------------------------------------------------
-
-const calls: RunOptions[] = [];
-
-async function mockRun(planStdout: string): Promise<RunResult> {
-  return { stdout: planStdout, commits: [], iterations: [], branch: "main" };
-}
+import { describe, it, expect } from 'vitest';
+import type { RunOptions, RunResult, SandboxHooks, SandboxProvider } from '@ai-hero/sandcastle';
+import { runPlanner, extractPlanJson } from './plan.mts';
 
 const validPlan = JSON.stringify({
   issues: [
-    { id: "issue-1", title: "Fix auth bug", branch: "sandcastle/issue-1-fix-auth" },
-    { id: "issue-2", title: "Add tests", branch: "sandcastle/issue-2-add-tests" },
+    { id: 'issue-1', title: 'Fix auth bug', branch: 'sandcastle/issue-1-fix-auth' },
+    { id: 'issue-2', title: 'Add tests', branch: 'sandcastle/issue-2-add-tests' },
   ],
 });
 
-const captureRun = (stdout: string) => (opts: RunOptions): Promise<RunResult> => {
-  calls.push(opts);
-  return mockRun(stdout);
-};
+async function mockRun(stdout: string): Promise<RunResult> {
+  return { stdout, commits: [], iterations: [], branch: 'main' };
+}
 
-const issues = await runPlanner(
-  captureRun(`<plan>${validPlan}</plan>`),
-  {} as unknown as SandboxProvider,
-  {} as unknown as SandboxHooks,
-);
+function captureRun(stdout: string, calls: RunOptions[]) {
+  return (opts: RunOptions): Promise<RunResult> => {
+    calls.push(opts);
+    return mockRun(stdout);
+  };
+}
 
-assert.strictEqual(issues.length, 2, "should return two issues");
-assert.strictEqual(issues[0]!.id, "issue-1", "first issue id should match");
-assert.strictEqual(issues[0]!.title, "Fix auth bug", "first issue title should match");
-assert.strictEqual(issues[0]!.branch, "sandcastle/issue-1-fix-auth", "first issue branch should match");
-assert.strictEqual(issues[1]!.id, "issue-2", "second issue id should match");
-assert.strictEqual(calls.length, 1, "should call runSandbox once");
-assert.strictEqual(calls[0]!.name, "planner", "should use planner name");
-assert.strictEqual(calls[0]!.maxIterations, 1, "should use 1 max iteration");
-assert.strictEqual(calls[0]!.promptFile, "./.sandcastle/plan-prompt.md", "should use plan prompt");
+const NOOP_SANDBOX = {} as unknown as SandboxProvider;
+const NOOP_HOOKS = {} as unknown as SandboxHooks;
 
-// ---------------------------------------------------------------------------
-// Missing <plan> tag throws
-// ---------------------------------------------------------------------------
-await assert.rejects(
-  () =>
-    runPlanner(
-      () => mockRun("No plan here"),
-      {} as unknown as SandboxProvider,
-      {} as unknown as SandboxHooks,
-    ),
-  /did not produce a <plan> tag/,
-  "should throw when <plan> tag is missing",
-);
+describe('runPlanner', () => {
+  it('returns issues from a valid <plan> tag', async () => {
+    const calls: RunOptions[] = [];
 
-// ---------------------------------------------------------------------------
-// Invalid JSON inside <plan> throws
-// ---------------------------------------------------------------------------
-await assert.rejects(
-  () =>
-    runPlanner(
-      () => mockRun("<plan>not json</plan>"),
-      {} as unknown as SandboxProvider,
-      {} as unknown as SandboxHooks,
-    ),
-  /JSON/,
-  "should throw when plan contains invalid JSON",
-);
+    const issues = await runPlanner(
+      captureRun(`<plan>${validPlan}</plan>`, calls),
+      NOOP_SANDBOX,
+      NOOP_HOOKS,
+    );
 
-// ---------------------------------------------------------------------------
-// Schema validation failure throws
-// ---------------------------------------------------------------------------
-await assert.rejects(
-  () =>
-    runPlanner(
-      () => mockRun(`<plan>${JSON.stringify({ issues: [{ id: "only-id" }] })}</plan>`),
-      {} as unknown as SandboxProvider,
-      {} as unknown as SandboxHooks,
-    ),
-  /Invalid input/,
-  "should throw when plan violates schema",
-);
+    expect(issues).toHaveLength(2);
+    expect(issues[0]!.id).toBe('issue-1');
+    expect(issues[0]!.title).toBe('Fix auth bug');
+    expect(issues[0]!.branch).toBe('sandcastle/issue-1-fix-auth');
+    expect(issues[1]!.id).toBe('issue-2');
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.name).toBe('planner');
+    expect(calls[0]!.maxIterations).toBe(1);
+    expect(calls[0]!.promptFile).toBe('./.sandcastle/plan-prompt.md');
+  });
 
-// ---------------------------------------------------------------------------
-// Empty issues array is returned as-is
-// ---------------------------------------------------------------------------
-const emptyPlan = JSON.stringify({ issues: [] });
-const empty = await runPlanner(
-  () => mockRun(`<plan>${emptyPlan}</plan>`),
-  {} as unknown as SandboxProvider,
-  {} as unknown as SandboxHooks,
-);
+  it('throws when <plan> tag is missing', async () => {
+    await expect(() =>
+      runPlanner(
+        () => mockRun('No plan here'),
+        NOOP_SANDBOX,
+        NOOP_HOOKS,
+      ),
+    ).rejects.toThrow(/did not produce a <plan> tag/);
+  });
 
-assert.deepStrictEqual(empty, [], "should return empty array for empty plan");
+  it('throws when plan contains invalid JSON', async () => {
+    await expect(() =>
+      runPlanner(
+        () => mockRun('<plan>not json</plan>'),
+        NOOP_SANDBOX,
+        NOOP_HOOKS,
+      ),
+    ).rejects.toThrow(/JSON/);
+  });
 
-// ---------------------------------------------------------------------------
-// Regression: nested <plan> tags (LLM parrots the prompt's literal example)
-// Agent emits: <plan>` tags:\n\n<plan>{"issues":[...]}</plan>
-// ---------------------------------------------------------------------------
-const nestedPlan = `<plan>\` tags:
+  it('throws when plan violates schema', async () => {
+    await expect(() =>
+      runPlanner(
+        () => mockRun(`<plan>${JSON.stringify({ issues: [{ id: 'only-id' }] })}</plan>`),
+        NOOP_SANDBOX,
+        NOOP_HOOKS,
+      ),
+    ).rejects.toThrow(/Invalid input/);
+  });
+
+  it('returns empty array for empty plan', async () => {
+    const emptyPlan = JSON.stringify({ issues: [] });
+    const empty = await runPlanner(
+      () => mockRun(`<plan>${emptyPlan}</plan>`),
+      NOOP_SANDBOX,
+      NOOP_HOOKS,
+    );
+
+    expect(empty).toEqual([]);
+  });
+
+  it('handles nested <plan> tags (LLM parrots prompt example)', async () => {
+    const nestedPlan = `<plan>\` tags:
 
 <plan>${validPlan}</plan>`;
-const nested = await runPlanner(
-  () => mockRun(nestedPlan),
-  {} as unknown as SandboxProvider,
-  {} as unknown as SandboxHooks,
-);
-assert.strictEqual(nested.length, 2, "nested plan: should return two issues");
-assert.strictEqual(nested[0]!.id, "issue-1", "nested plan: first issue id should match");
+    const nested = await runPlanner(
+      () => mockRun(nestedPlan),
+      NOOP_SANDBOX,
+      NOOP_HOOKS,
+    );
+    expect(nested).toHaveLength(2);
+    expect(nested[0]!.id).toBe('issue-1');
+  });
 
-// ---------------------------------------------------------------------------
-// Regression: markdown code-fenced JSON inside <plan>
-// Agent emits: <plan>\n```json\n{"issues":[...]}\n```\n</plan>
-// ---------------------------------------------------------------------------
-const fencedPlan = `<plan>
+  it('handles markdown code-fenced JSON inside <plan>', async () => {
+    const fencedPlan = `<plan>
 \`\`\`json
 ${validPlan}
 \`\`\`
 </plan>`;
-const fenced = await runPlanner(
-  () => mockRun(fencedPlan),
-  {} as unknown as SandboxProvider,
-  {} as unknown as SandboxHooks,
-);
-assert.strictEqual(fenced.length, 2, "fenced plan: should return two issues");
-assert.strictEqual(fenced[0]!.id, "issue-1", "fenced plan: first issue id should match");
+    const fenced = await runPlanner(
+      () => mockRun(fencedPlan),
+      NOOP_SANDBOX,
+      NOOP_HOOKS,
+    );
+    expect(fenced).toHaveLength(2);
+    expect(fenced[0]!.id).toBe('issue-1');
+  });
 
-// ---------------------------------------------------------------------------
-// Regression: JSON with leading text preamble before the object
-// Agent emits: <plan>Here is the plan:\n{"issues":[...]}</plan>
-// ---------------------------------------------------------------------------
-const preamblePlan = `<plan>Here is the plan:
+  it('handles JSON with leading text preamble', async () => {
+    const preamblePlan = `<plan>Here is the plan:
 
 ${validPlan}</plan>`;
-const preamble = await runPlanner(
-  () => mockRun(preamblePlan),
-  {} as unknown as SandboxProvider,
-  {} as unknown as SandboxHooks,
-);
-assert.strictEqual(preamble.length, 2, "preamble plan: should return two issues");
+    const preamble = await runPlanner(
+      () => mockRun(preamblePlan),
+      NOOP_SANDBOX,
+      NOOP_HOOKS,
+    );
+    expect(preamble).toHaveLength(2);
+  });
+});
 
-// ---------------------------------------------------------------------------
-// Unit: extractPlanJson with combined nesting + fencing + preamble
-// ---------------------------------------------------------------------------
-const combined = `<plan>\` tags:
+describe('extractPlanJson', () => {
+  it('handles combined nesting + fencing + preamble', () => {
+    const combined = `<plan>\` tags:
 
 <plan>
 \`\`\`json
@@ -151,7 +136,7 @@ Here is the plan:
 ${validPlan}
 \`\`\`
 </plan>`;
-const combinedJson = JSON.parse(extractPlanJson(combined));
-assert.strictEqual(combinedJson.issues.length, 2, "combined: should extract two issues");
-
-console.log("All plan phase tests passed!");
+    const combinedJson = JSON.parse(extractPlanJson(combined));
+    expect(combinedJson.issues).toHaveLength(2);
+  });
+});

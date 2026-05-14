@@ -1,26 +1,42 @@
-import assert from "assert";
-import { BeadsIssueSchema, PlannerOutputSchema, type BeadsIssue } from "./types.mts";
+import { describe, it, expect } from 'vitest';
+import { BeadsIssueSchema, PlannerOutputSchema, type BeadsIssue } from './types.mts';
 
-const validIssue = { id: "test-1", title: "Test Issue", status: "open" };
-const parsedIssue = BeadsIssueSchema.parse(validIssue);
-assert.strictEqual(parsedIssue.id, "test-1", "parsed issue id should match");
-assert.strictEqual(parsedIssue.title, "Test Issue", "parsed issue title should match");
-assert.strictEqual(parsedIssue.status, "open", "parsed issue status should match");
+describe('BeadsIssueSchema', () => {
+  it('parses a valid issue', () => {
+    const validIssue = { id: 'test-1', title: 'Test Issue', status: 'open' };
+    const parsedIssue = BeadsIssueSchema.parse(validIssue);
+    expect(parsedIssue.id).toBe('test-1');
+    expect(parsedIssue.title).toBe('Test Issue');
+    expect(parsedIssue.status).toBe('open');
+  });
 
-assert.throws(() => BeadsIssueSchema.parse({ id: "test-1", title: "Test Issue" }), "missing status should throw");
-assert.throws(() => BeadsIssueSchema.parse({ id: "test-1", status: "open" }), "missing title should throw");
+  it('throws when status is missing', () => {
+    expect(() => BeadsIssueSchema.parse({ id: 'test-1', title: 'Test Issue' })).toThrow();
+  });
 
-const validPlan = { issues: [{ id: "i1", title: "Issue 1", branch: "branch-1" }] };
-const parsedPlan = PlannerOutputSchema.parse(validPlan);
-assert.strictEqual(parsedPlan.issues.length, 1, "parsed plan should have 1 issue");
+  it('throws when title is missing', () => {
+    expect(() => BeadsIssueSchema.parse({ id: 'test-1', status: 'open' })).toThrow();
+  });
+});
 
-const firstIssue = parsedPlan.issues[0];
-assert.ok(firstIssue, "parsed plan should have at least one issue");
-assert.strictEqual(firstIssue.id, "i1", "parsed plan issue id should match");
+describe('PlannerOutputSchema', () => {
+  it('parses a valid plan', () => {
+    const validPlan = { issues: [{ id: 'i1', title: 'Issue 1', branch: 'branch-1' }] };
+    const parsedPlan = PlannerOutputSchema.parse(validPlan);
+    expect(parsedPlan.issues).toHaveLength(1);
+    expect(parsedPlan.issues[0]!.id).toBe('i1');
+  });
 
-assert.throws(() => PlannerOutputSchema.parse({ issues: [{ id: "i1", title: "Issue 1" }] }), "missing branch should throw");
+  it('throws when branch is missing', () => {
+    expect(() =>
+      PlannerOutputSchema.parse({ issues: [{ id: 'i1', title: 'Issue 1' }] }),
+    ).toThrow();
+  });
+});
 
-const issue: BeadsIssue = { id: "type-test", title: "Type Test", status: "open" };
-assert.strictEqual(issue.id, "type-test", "typed issue id should match");
-
-console.log("All types tests passed!");
+describe('BeadsIssue type', () => {
+  it('allows creating a valid typed issue', () => {
+    const issue: BeadsIssue = { id: 'type-test', title: 'Type Test', status: 'open' };
+    expect(issue.id).toBe('type-test');
+  });
+});

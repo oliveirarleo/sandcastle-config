@@ -4,7 +4,7 @@
   "description": "",
   "main": "src/hello.ts",
   "scripts": {
-    "test": "tsx src/hello.test.ts && tsx .sandcastle/config.test.mts && tsx .sandcastle/types.test.mts && tsx .sandcastle/helpers/concurrency.test.mts && tsx .sandcastle/helpers/issues.test.mts && tsx .sandcastle/phases/merge.test.mts && tsx .sandcastle/phases/execute.test.mts && tsx .sandcastle/phases/plan.test.mts",
+    "test": "vitest run",
     "build:sc-image": "sandcastle docker build-image --dockerfile .sandcastle/Containerfile",
     "sc": "tsx .sandcastle/main.mts",
     "typecheck": "tsc --noEmit"
@@ -22,7 +22,8 @@
     "@ai-hero/sandcastle": "^0.5.10",
     "@types/node": "^25.7.0",
     "tsx": "^4.21.0",
-    "typescript": "^6.0.3"
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.6"
   },
   "dependencies": {
     "pino": "^10.3.1",
