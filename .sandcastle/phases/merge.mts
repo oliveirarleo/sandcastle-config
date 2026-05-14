@@ -67,9 +67,23 @@ export async function runMergePhase(
   sandboxProvider: SandboxProvider,
   hooks: SandboxHooks,
   logger?: Logger,
+  onMergeComplete?: (issueId: string) => Promise<void>,
 ): Promise<void> {
   for (const issue of completedIssues) {
     logger?.info({ branch: issue.branch, issueId: issue.id }, 'Merging branch');
+
+    // Skip merge if the branch is already merged into HEAD (safety net).
+    // This covers the case where a previous sandcastle run merged the branch
+    // but the sandcastle:merged label was not set.
+    const alreadyMerged = await isBranchMerged(issue.branch);
+    if (alreadyMerged) {
+      logger?.info(
+        { branch: issue.branch, issueId: issue.id },
+        'Branch already merged (git branch --merged). Skipping merge, updating label.',
+      );
+      await onMergeComplete?.(issue.id);
+      continue;
+    }
 
     await commitBeadsExportIfDirty(logger);
 
@@ -88,6 +102,8 @@ export async function runMergePhase(
         },
       });
 
+      await onMergeComplete?.(issue.id);
+
       logger?.info({ branch: issue.branch, issueId: issue.id }, 'Running pnpm install after merge');
       await installDependencies(logger, issue.branch, issue.id);
     } catch (err) {
@@ -96,5 +112,26 @@ export async function runMergePhase(
         `Merge failed for ${issue.id} (${issue.branch}), continuing with remaining branches`,
       );
     }
+  }
+}
+
+/**
+ * Check if a branch has already been merged into HEAD.
+ *
+ * Uses `git branch --merged` as a secondary safety net. The authoritative
+ * source is the `sandcastle:merged` label, but this catches the case where
+ * a merge succeeded but the label update failed.
+ *
+ * The exec function is injectable for testing.
+ */
+export async function isBranchMerged(
+  branch: string,
+  execFn: (cmd: string) => Promise<{ stdout: string; stderr: string }> = (cmd) => execAsync(cmd),
+): Promise<boolean> {
+  try {
+    const { stdout } = await execFn('git branch --merged HEAD');
+    return stdout.split('\n').some((line) => line.trim().replace(/^\*?\s+/, '') === branch);
+  } catch {
+    return false;
   }
 }
