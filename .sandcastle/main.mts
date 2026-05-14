@@ -8,8 +8,8 @@
 //                               createSandbox(). The implementer runs first
 //                               (100 iterations). If it produces commits, a
 //                               reviewer runs in the same sandbox on the same
-//                               branch (1 iteration). All issue pipelines run
-//                               concurrently via Promise.allSettled().
+//                               branch (1 iteration). Issue pipelines run
+//                               concurrently up to a configurable limit.
 //   Phase 3 (Merge):            A single agent merges all completed branches
 //                               into the current branch.
 //
@@ -76,13 +76,19 @@ const sandboxProvider = docker({
 // Raise this if your backlog is large; lower it for a quick smoke-test run.
 const MAX_ITERATIONS = 10;
 
+function parseEnvInt(value: string | undefined, fallback: number): number {
+  if (value === undefined) return fallback;
+  const n = Number(value);
+  return Number.isNaN(n) ? fallback : n;
+}
+
 // Maximum number of bead tasks to run in parallel during Phase 2.
 // Default: 3. Override with SANDCASTLE_MAX_PARALLEL env var.
-const MAX_PARALLEL_TASKS = Number(process.env.SANDCASTLE_MAX_PARALLEL ?? "3");
+const MAX_PARALLEL_TASKS = parseEnvInt(process.env.SANDCASTLE_MAX_PARALLEL, 3);
 
 // How long to sleep between polls for new open issues (milliseconds).
 // Default: 5 minutes. Override with SANDCASTLE_POLL_MS env var.
-const POLL_INTERVAL_MS = Number(process.env.SANDCASTLE_POLL_MS ?? "300000");
+const POLL_INTERVAL_MS = parseEnvInt(process.env.SANDCASTLE_POLL_MS, 300000);
 
 // ---------------------------------------------------------------------------
 // Helper: check for open issues via beads (bd)
@@ -117,12 +123,10 @@ async function getOpenIssues(): Promise<BeadsIssue[]> {
   }
 }
 
-async function waitUntilThereAreOpenIssues(): Promise<BeadsIssue[]> {
+async function waitForOpenIssues(): Promise<BeadsIssue[]> {
   while (true) {
     const openIssues = await getOpenIssues();
-    console.log("[DEBUG] ", openIssues)
     if (openIssues.length > 0) {
-      console.log(`Found ${openIssues.length} issue(s).`);
       return openIssues;
     }
     await setTimeout(POLL_INTERVAL_MS);
@@ -149,9 +153,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // -----------------------------------------------------------------------
   // Poll for open issues
   // -----------------------------------------------------------------------
-  console.log("[DEBUG] About to call waitUntilThereAreOpenIssues...");
-  const openIssues = await waitUntilThereAreOpenIssues();
-  console.log("[DEBUG] waitUntilThereAreOpenIssues returned.")
+  const openIssues = await waitForOpenIssues();
   console.log(`Found ${openIssues.length} open issue(s). Starting planner...`);
   console.log(`\n=== Iteration ${iteration}/${MAX_ITERATIONS} ===\n`);
 
@@ -164,7 +166,6 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   //
   // It outputs a <plan> JSON block — we parse that to drive Phase 2.
   // -------------------------------------------------------------------------
-  console.log("[DEBUG] About to start planner sandcastle.run...");
   const plan = await sandcastle.run({
     hooks,
     sandbox: sandboxProvider,
@@ -177,7 +178,6 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     promptFile: "./.sandcastle/plan-prompt.md",
   });
 
-  console.log("[DEBUG] Planner sandcastle.run returned.");
   // Extract the <plan>…</plan> block from the agent's stdout.
   const planMatch = plan.stdout.match(/<plan>([\s\S]*?)<\/plan>/);
   if (!planMatch) {
@@ -209,7 +209,8 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // and reviewer share the same sandbox instance per branch. The implementer
   // runs first; if it produces commits, the reviewer runs in the same sandbox.
   //
-  // Promise.allSettled means one failing pipeline doesn't cancel the others.
+  // runWithConcurrencyLimit settles every pipeline, so one failure does not
+  // cancel the others.
   // -------------------------------------------------------------------------
 
   const settled = await runWithConcurrencyLimit(

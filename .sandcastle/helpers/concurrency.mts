@@ -7,17 +7,17 @@ export async function runWithConcurrencyLimit<T, R>(
   const executing = new Set<Promise<void>>();
 
   for (let i = 0; i < items.length; i++) {
-    const p = Promise.resolve()
-      .then(() => fn(items[i]!, i))
-      .then(
-        (value) => { results[i] = { status: "fulfilled", value }; },
-        (reason) => { results[i] = { status: "rejected", reason }; },
-      )
-      .finally(() => {
-        executing.delete(p);
-      });
+    const task = (async () => {
+      try {
+        const value = await fn(items[i]!, i);
+        results[i] = { status: "fulfilled", value };
+      } catch (reason) {
+        results[i] = { status: "rejected", reason };
+      }
+    })();
 
-    executing.add(p);
+    executing.add(task);
+    task.finally(() => executing.delete(task));
 
     if (executing.size >= limit) {
       await Promise.race(executing);
