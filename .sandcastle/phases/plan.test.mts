@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
 import type { RunOptions, RunResult, SandboxHooks, SandboxProvider } from '@ai-hero/sandcastle';
-import { runPlanner, extractPlanJson } from './plan.mts';
+import { describe, expect, it } from 'vitest';
+import { extractPlanJson, runPlanner } from './plan.mts';
 
 const validPlan = JSON.stringify({
   issues: [
@@ -46,21 +46,13 @@ describe('runPlanner', () => {
 
   it('throws when <plan> tag is missing', async () => {
     await expect(() =>
-      runPlanner(
-        () => mockRun('No plan here'),
-        NOOP_SANDBOX,
-        NOOP_HOOKS,
-      ),
+      runPlanner(() => mockRun('No plan here'), NOOP_SANDBOX, NOOP_HOOKS),
     ).rejects.toThrow(/did not produce a <plan> tag/);
   });
 
   it('throws when plan contains invalid JSON', async () => {
     await expect(() =>
-      runPlanner(
-        () => mockRun('<plan>not json</plan>'),
-        NOOP_SANDBOX,
-        NOOP_HOOKS,
-      ),
+      runPlanner(() => mockRun('<plan>not json</plan>'), NOOP_SANDBOX, NOOP_HOOKS),
     ).rejects.toThrow(/JSON/);
   });
 
@@ -89,11 +81,7 @@ describe('runPlanner', () => {
     const nestedPlan = `<plan>\` tags:
 
 <plan>${validPlan}</plan>`;
-    const nested = await runPlanner(
-      () => mockRun(nestedPlan),
-      NOOP_SANDBOX,
-      NOOP_HOOKS,
-    );
+    const nested = await runPlanner(() => mockRun(nestedPlan), NOOP_SANDBOX, NOOP_HOOKS);
     expect(nested).toHaveLength(2);
     expect(nested[0]!.id).toBe('issue-1');
   });
@@ -104,11 +92,7 @@ describe('runPlanner', () => {
 ${validPlan}
 \`\`\`
 </plan>`;
-    const fenced = await runPlanner(
-      () => mockRun(fencedPlan),
-      NOOP_SANDBOX,
-      NOOP_HOOKS,
-    );
+    const fenced = await runPlanner(() => mockRun(fencedPlan), NOOP_SANDBOX, NOOP_HOOKS);
     expect(fenced).toHaveLength(2);
     expect(fenced[0]!.id).toBe('issue-1');
   });
@@ -117,11 +101,7 @@ ${validPlan}
     const preamblePlan = `<plan>Here is the plan:
 
 ${validPlan}</plan>`;
-    const preamble = await runPlanner(
-      () => mockRun(preamblePlan),
-      NOOP_SANDBOX,
-      NOOP_HOOKS,
-    );
+    const preamble = await runPlanner(() => mockRun(preamblePlan), NOOP_SANDBOX, NOOP_HOOKS);
     expect(preamble).toHaveLength(2);
   });
 });

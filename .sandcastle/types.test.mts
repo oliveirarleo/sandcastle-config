@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { BeadsIssueSchema, PlannerOutputSchema, type BeadsIssue } from './types.mts';
+import { describe, expect, it } from 'vitest';
+import { type BeadsIssue, BeadsIssueSchema, PlannerOutputSchema } from './types.mts';
 
 describe('BeadsIssueSchema', () => {
   it('parses a valid issue', () => {
@@ -28,9 +28,7 @@ describe('PlannerOutputSchema', () => {
   });
 
   it('throws when branch is missing', () => {
-    expect(() =>
-      PlannerOutputSchema.parse({ issues: [{ id: 'i1', title: 'Issue 1' }] }),
-    ).toThrow();
+    expect(() => PlannerOutputSchema.parse({ issues: [{ id: 'i1', title: 'Issue 1' }] })).toThrow();
   });
 });
 

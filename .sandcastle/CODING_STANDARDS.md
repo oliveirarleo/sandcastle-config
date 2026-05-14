@@ -1,27 +1,36 @@
 # Coding Standards
 
-<!-- Customize this file with your project's coding standards.
-     The reviewer agent loads it during code review via @.sandcastle/CODING_STANDARDS.md
-     so these standards are enforced during review without costing tokens during implementation. -->
+<!-- This file is loaded by the reviewer agent during code review via
+     @.sandcastle/CODING_STANDARDS.md. Rules enforced by Biome's default config
+     are listed here for human reference; Biome handles enforcement automatically. -->
 
-## Style
+## Style (enforced by Biome)
 
-<!-- Example:
-- Use camelCase for variables and functions
-- Use PascalCase for classes and types
-- Prefer named exports over default exports
--->
+- Indentation: 2 spaces
+- Quotes: single quotes (`'`)
+- Semicolons: always
+- Trailing commas: everywhere possible
+- Arrow function parentheses: always
+- Line width: 100 characters
+- Template literals over string concatenation
+- `node:` protocol for Node.js builtin imports
+
+## Lint rules (enforced by Biome)
+
+- `recommended`: all recommended Biome lint rules
+- `suspicious/noExplicitAny`: warn (avoid `any`, use `unknown` or typed alternatives)
+- `style/useConst`: error (prefer `const` over `let` when never reassigned)
+- `style/noUnusedTemplateLiteral`: error
 
 ## Testing
 
-<!-- Example:
-- Every public function must have at least one test
-- Use descriptive test names that explain the expected behavior
--->
+- Every public function in helpers and phases must have at least one test
+- Use `describe`/`it`/`expect` from vitest
+- Test external behaviour, not implementation details
 
 ## Architecture
 
-<!-- Example:
 - Keep modules focused on a single responsibility
-- Prefer composition over inheritance
--->
+- Phases import from helpers and types; helpers import from types and config
+- No cross-import cycles
+- Accept logger as an argument, never import it globally

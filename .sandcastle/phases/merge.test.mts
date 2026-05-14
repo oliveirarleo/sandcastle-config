@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
 import type { RunOptions, RunResult, SandboxHooks, SandboxProvider } from '@ai-hero/sandcastle';
-import { runMergePhase } from './merge.mts';
+import { describe, expect, it } from 'vitest';
 import type { PlannerIssue } from '../types.mts';
+import { runMergePhase } from './merge.mts';
 
 const NOOP_SANDBOX = {} as unknown as SandboxProvider;
 const NOOP_HOOKS = {} as unknown as SandboxHooks;
@@ -20,13 +20,7 @@ describe('runMergePhase', () => {
       { branch: 'branch-b', id: 'issue-2', title: 'Fix B' },
     ];
 
-    await runMergePhase(
-      mockRunSandbox,
-      issues,
-      NOOP_SANDBOX,
-      NOOP_HOOKS,
-      undefined,
-    );
+    await runMergePhase(mockRunSandbox, issues, NOOP_SANDBOX, NOOP_HOOKS, undefined);
 
     expect(calls).toHaveLength(2);
     expect(calls[0]!.promptArgs!.BRANCHES).toBe('- branch-a');
@@ -55,13 +49,7 @@ describe('runMergePhase', () => {
       { branch: 'branch-c', id: 'issue-3', title: 'Fix C' },
     ];
 
-    await runMergePhase(
-      mockRunWithFailure,
-      threeIssues,
-      NOOP_SANDBOX,
-      NOOP_HOOKS,
-      undefined,
-    );
+    await runMergePhase(mockRunWithFailure, threeIssues, NOOP_SANDBOX, NOOP_HOOKS, undefined);
 
     expect(isolatedCalls).toHaveLength(3);
     expect(isolatedCalls[0]).toBe('- branch-a');
@@ -84,13 +72,7 @@ describe('runMergePhase', () => {
 
     // Should not throw
     await expect(
-      runMergePhase(
-        mockAlwaysFail,
-        issues,
-        NOOP_SANDBOX,
-        NOOP_HOOKS,
-        undefined,
-      ),
+      runMergePhase(mockAlwaysFail, issues, NOOP_SANDBOX, NOOP_HOOKS, undefined),
     ).resolves.toBeUndefined();
 
     expect(failingCalls).toHaveLength(2);

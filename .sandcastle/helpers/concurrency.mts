@@ -10,9 +10,9 @@ export async function runWithConcurrencyLimit<T, R>(
     const task = (async () => {
       try {
         const value = await fn(items[i]!, i);
-        results[i] = { status: "fulfilled", value };
+        results[i] = { status: 'fulfilled', value };
       } catch (reason) {
-        results[i] = { status: "rejected", reason };
+        results[i] = { status: 'rejected', reason };
       }
     })();
 

@@ -1,8 +1,14 @@
-import { pi, type RunOptions, type RunResult, type SandboxHooks, type SandboxProvider } from "@ai-hero/sandcastle";
-import { exec } from "node:child_process";
-import { promisify } from "node:util";
-import type { Logger } from "pino";
-import type { PlannerIssue } from "../types.mts";
+import { exec } from 'node:child_process';
+import { promisify } from 'node:util';
+import {
+  pi,
+  type RunOptions,
+  type RunResult,
+  type SandboxHooks,
+  type SandboxProvider,
+} from '@ai-hero/sandcastle';
+import type { Logger } from 'pino';
+import type { PlannerIssue } from '../types.mts';
 
 const execAsync = promisify(exec);
 
@@ -19,16 +25,19 @@ export type RunSandbox = (options: RunOptions) => Promise<RunResult>;
  */
 async function commitBeadsExportIfDirty(logger?: Logger): Promise<void> {
   try {
-    const { stdout } = await execAsync("git status --porcelain .beads/issues.jsonl");
+    const { stdout } = await execAsync('git status --porcelain .beads/issues.jsonl');
     if (!stdout.trim()) {
       return;
     }
-    logger?.info("Beads export is dirty, committing before merge");
-    await execAsync("git add .beads/issues.jsonl");
+    logger?.info('Beads export is dirty, committing before merge');
+    await execAsync('git add .beads/issues.jsonl');
     await execAsync('git commit -m "chore: update beads export"');
-    logger?.info("Committed beads export");
+    logger?.info('Committed beads export');
   } catch (err) {
-    logger?.warn({ err }, "Failed to commit beads export — merge may fail if working tree is dirty");
+    logger?.warn(
+      { err },
+      'Failed to commit beads export — merge may fail if working tree is dirty',
+    );
   }
 }
 
@@ -43,11 +52,11 @@ async function installDependencies(
   issueId: string,
 ): Promise<void> {
   try {
-    await execAsync("CI=true pnpm install --no-frozen-lockfile");
+    await execAsync('CI=true pnpm install --no-frozen-lockfile');
   } catch (err) {
     logger?.warn(
       { err, branch, issueId },
-      "pnpm install failed after merge — dependencies may be out of date",
+      'pnpm install failed after merge — dependencies may be out of date',
     );
   }
 }
@@ -60,7 +69,7 @@ export async function runMergePhase(
   logger?: Logger,
 ): Promise<void> {
   for (const issue of completedIssues) {
-    logger?.info({ branch: issue.branch, issueId: issue.id }, "Merging branch");
+    logger?.info({ branch: issue.branch, issueId: issue.id }, 'Merging branch');
 
     await commitBeadsExportIfDirty(logger);
 
@@ -68,18 +77,18 @@ export async function runMergePhase(
       await runSandbox({
         hooks,
         sandbox: sandboxProvider,
-        name: "merger",
+        name: 'merger',
         maxIterations: 1,
-        agent: pi("opencode-go/deepseek-v4-pro"),
-        promptFile: "./.sandcastle/merge-prompt.md",
-        branchStrategy: { type: "merge-to-head" },
+        agent: pi('opencode-go/deepseek-v4-pro'),
+        promptFile: './.sandcastle/merge-prompt.md',
+        branchStrategy: { type: 'merge-to-head' },
         promptArgs: {
           BRANCHES: `- ${issue.branch}`,
           ISSUES: `- ${issue.id}: ${issue.title}`,
         },
       });
 
-      logger?.info({ branch: issue.branch, issueId: issue.id }, "Running pnpm install after merge");
+      logger?.info({ branch: issue.branch, issueId: issue.id }, 'Running pnpm install after merge');
       await installDependencies(logger, issue.branch, issue.id);
     } catch (err) {
       logger?.error(

@@ -1,13 +1,13 @@
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
-  resolveHostPath,
-  readOpencodeApiKey,
   MAX_ITERATIONS,
   MAX_PARALLEL_TASKS,
   POLL_INTERVAL_MS,
+  readOpencodeApiKey,
+  resolveHostPath,
 } from './config.mts';
 
 describe('resolveHostPath', () => {

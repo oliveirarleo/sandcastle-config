@@ -1,7 +1,12 @@
-import { describe, it, expect } from 'vitest';
-import type { SandboxRunOptions, SandboxRunResult, SandboxHooks, SandboxProvider } from '@ai-hero/sandcastle';
-import { runExecutionPhase, type CreateSandboxFn } from './execute.mts';
+import type {
+  SandboxHooks,
+  SandboxProvider,
+  SandboxRunOptions,
+  SandboxRunResult,
+} from '@ai-hero/sandcastle';
+import { describe, expect, it } from 'vitest';
 import type { PlannerIssue } from '../types.mts';
+import { type CreateSandboxFn, runExecutionPhase } from './execute.mts';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -14,12 +19,18 @@ function mockRunResult(commits: { sha: string }[] = [{ sha: 'abc123' }]): Sandbo
   return { stdout: '', commits, iterations: [], logFilePath: undefined };
 }
 
-function mockSandbox(runImpl: (opts: SandboxRunOptions) => Promise<SandboxRunResult> = async () => mockRunResult()) {
+function mockSandbox(
+  runImpl: (opts: SandboxRunOptions) => Promise<SandboxRunResult> = async () => mockRunResult(),
+) {
   let closed = false;
   return {
     run: runImpl,
-    close: async () => { closed = true; },
-    get closed() { return closed; },
+    close: async () => {
+      closed = true;
+    },
+    get closed() {
+      return closed;
+    },
   };
 }
 
@@ -41,68 +52,43 @@ function sandboxWithCloseTracker(
 
 describe('runExecutionPhase', () => {
   it('completes a single issue when implementer produces commits', async () => {
-    const issues: PlannerIssue[] = [
-      { id: 'issue-1', title: 'Fix A', branch: 'branch-a' },
-    ];
+    const issues: PlannerIssue[] = [{ id: 'issue-1', title: 'Fix A', branch: 'branch-a' }];
 
     const createSandbox: CreateSandboxFn = async () => mockSandbox();
 
-    const result = await runExecutionPhase(
-      issues,
-      createSandbox,
-      NOOP_SANDBOX,
-      NOOP_HOOKS,
-      [],
-      3,
-    );
+    const result = await runExecutionPhase(issues, createSandbox, NOOP_SANDBOX, NOOP_HOOKS, [], 3);
 
     expect(result).toHaveLength(1);
     expect(result[0]!.id).toBe('issue-1');
   });
 
   it('does not complete issue when implementer produces no commits', async () => {
-    const issues: PlannerIssue[] = [
-      { id: 'issue-1', title: 'Fix A', branch: 'branch-a' },
-    ];
+    const issues: PlannerIssue[] = [{ id: 'issue-1', title: 'Fix A', branch: 'branch-a' }];
 
     let runCount = 0;
-    const createSandbox: CreateSandboxFn = async () => mockSandbox(async () => {
-      runCount++;
-      return mockRunResult([]);
-    });
+    const createSandbox: CreateSandboxFn = async () =>
+      mockSandbox(async () => {
+        runCount++;
+        return mockRunResult([]);
+      });
 
-    const result = await runExecutionPhase(
-      issues,
-      createSandbox,
-      NOOP_SANDBOX,
-      NOOP_HOOKS,
-      [],
-      3,
-    );
+    const result = await runExecutionPhase(issues, createSandbox, NOOP_SANDBOX, NOOP_HOOKS, [], 3);
 
     expect(result).toHaveLength(0);
     expect(runCount).toBe(1);
   });
 
   it('runs reviewer after implementer with commits', async () => {
-    const issues: PlannerIssue[] = [
-      { id: 'issue-1', title: 'Fix A', branch: 'branch-a' },
-    ];
+    const issues: PlannerIssue[] = [{ id: 'issue-1', title: 'Fix A', branch: 'branch-a' }];
 
     const runNames: string[] = [];
-    const createSandbox: CreateSandboxFn = async () => mockSandbox(async (opts) => {
-      runNames.push(opts.name ?? 'unknown');
-      return mockRunResult(opts.name === 'implementer' ? [{ sha: 'abc' }] : []);
-    });
+    const createSandbox: CreateSandboxFn = async () =>
+      mockSandbox(async (opts) => {
+        runNames.push(opts.name ?? 'unknown');
+        return mockRunResult(opts.name === 'implementer' ? [{ sha: 'abc' }] : []);
+      });
 
-    const result = await runExecutionPhase(
-      issues,
-      createSandbox,
-      NOOP_SANDBOX,
-      NOOP_HOOKS,
-      [],
-      3,
-    );
+    const result = await runExecutionPhase(issues, createSandbox, NOOP_SANDBOX, NOOP_HOOKS, [], 3);
 
     expect(result).toHaveLength(1);
     expect(runNames).toEqual(['implementer', 'reviewer']);
@@ -122,14 +108,7 @@ describe('runExecutionPhase', () => {
       });
     };
 
-    const result = await runExecutionPhase(
-      issues,
-      createSandbox,
-      NOOP_SANDBOX,
-      NOOP_HOOKS,
-      [],
-      2,
-    );
+    const result = await runExecutionPhase(issues, createSandbox, NOOP_SANDBOX, NOOP_HOOKS, [], 2);
 
     expect(result).toHaveLength(2);
     expect(processed).toHaveLength(4);
@@ -148,14 +127,7 @@ describe('runExecutionPhase', () => {
       return mockSandbox();
     };
 
-    const result = await runExecutionPhase(
-      issues,
-      createSandbox,
-      NOOP_SANDBOX,
-      NOOP_HOOKS,
-      [],
-      2,
-    );
+    const result = await runExecutionPhase(issues, createSandbox, NOOP_SANDBOX, NOOP_HOOKS, [], 2);
 
     expect(result).toHaveLength(1);
     expect(result[0]!.id).toBe('issue-2');

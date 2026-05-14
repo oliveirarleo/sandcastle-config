@@ -1,6 +1,12 @@
-import { pi, type RunOptions, type RunResult, type SandboxHooks, type SandboxProvider } from "@ai-hero/sandcastle";
-import type { Logger } from "pino";
-import { PlannerOutputSchema, type PlannerIssue } from "../types.mts";
+import {
+  pi,
+  type RunOptions,
+  type RunResult,
+  type SandboxHooks,
+  type SandboxProvider,
+} from '@ai-hero/sandcastle';
+import type { Logger } from 'pino';
+import { type PlannerIssue, PlannerOutputSchema } from '../types.mts';
 
 export type RunSandbox = (options: RunOptions) => Promise<RunResult>;
 
@@ -11,9 +17,7 @@ export type RunSandbox = (options: RunOptions) => Promise<RunResult>;
 export function extractPlanJson(stdout: string): string {
   const planMatch = stdout.match(/<plan>([\s\S]*?)<\/plan>/);
   if (!planMatch) {
-    throw new Error(
-      "Planning agent did not produce a <plan> tag.\n\n" + stdout,
-    );
+    throw new Error('Planning agent did not produce a <plan> tag.\n\n' + stdout);
   }
 
   let content = planMatch[1]!.trim();
@@ -34,9 +38,7 @@ export function extractPlanJson(stdout: string): string {
   // Find the outermost JSON object in whatever text remains.
   const jsonMatch = content.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
-    throw new Error(
-      "Planning agent's <plan> content does not contain a JSON object.\n\n" + stdout,
-    );
+    throw new Error("Planning agent's <plan> content does not contain a JSON object.\n\n" + stdout);
   }
 
   return jsonMatch[0];
@@ -52,13 +54,13 @@ export async function runPlanner(
   hooks: SandboxHooks,
   logger?: Logger,
 ): Promise<PlannerIssue[]> {
-  logger?.debug("Running planner sandbox...");
+  logger?.debug('Running planner sandbox...');
 
   const plan = await runSandbox({
-    name: "planner",
+    name: 'planner',
     maxIterations: 1,
-    agent: pi("opencode-go/deepseek-v4-pro"),
-    promptFile: "./.sandcastle/plan-prompt.md",
+    agent: pi('opencode-go/deepseek-v4-pro'),
+    promptFile: './.sandcastle/plan-prompt.md',
     sandbox: sandboxProvider,
     hooks,
   });
@@ -66,7 +68,7 @@ export async function runPlanner(
   const json = extractPlanJson(plan.stdout);
   const { issues } = PlannerOutputSchema.parse(JSON.parse(json));
 
-  logger?.info({ count: issues.length }, "Planning complete");
+  logger?.info({ count: issues.length }, 'Planning complete');
   for (const issue of issues) {
     logger?.info(`  ${issue.id}: ${issue.title} → ${issue.branch}`);
   }

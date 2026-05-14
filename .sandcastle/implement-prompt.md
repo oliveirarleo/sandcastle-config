@@ -35,7 +35,13 @@ If applicable, use RGR to complete the task.
 
 # FEEDBACK LOOPS
 
-Before committing, run `npm run typecheck` and `npm run test` to ensure the tests pass.
+Before committing, run these quality gates:
+
+1. `npm run check` — Biome linter + formatter (fixes style issues automatically)
+2. `npm run typecheck` — TypeScript type checking
+3. `npm run test` — Vitest test suite
+
+All three must pass before committing.
 
 # COMMIT
 

@@ -1,8 +1,8 @@
-import { $ } from "zx";
-import { z } from "zod";
-import { setTimeout as delay } from "timers/promises";
-import type { Logger } from "pino";
-import { BeadsIssueSchema, type BeadsIssue } from "../types.mts";
+import type { Logger } from 'pino';
+import { setTimeout as delay } from 'timers/promises';
+import { z } from 'zod';
+import { $ } from 'zx';
+import { type BeadsIssue, BeadsIssueSchema } from '../types.mts';
 
 export async function getOpenIssues(
   logger?: Logger,
@@ -14,7 +14,7 @@ export async function getOpenIssues(
     const parsed = JSON.parse(stdout);
     return z.object({ data: z.array(BeadsIssueSchema) }).parse(parsed).data;
   } catch (err) {
-    logger?.error({ err }, "Failed to query open issues");
+    logger?.error({ err }, 'Failed to query open issues');
     return [];
   }
 }
@@ -30,9 +30,9 @@ export async function waitForOpenIssues(
   const { query, sleep = delay } = deps;
   while (true) {
     const openIssues = await getOpenIssues(logger, query);
-    logger?.debug({ openIssues }, "Polled for open issues");
+    logger?.debug({ openIssues }, 'Polled for open issues');
     if (openIssues.length > 0) {
-      logger?.info({ count: openIssues.length }, "Found open issues");
+      logger?.info({ count: openIssues.length }, 'Found open issues');
       return openIssues;
     }
     await sleep(pollIntervalMs);

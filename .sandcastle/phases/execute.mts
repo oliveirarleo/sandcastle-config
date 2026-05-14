@@ -1,7 +1,17 @@
-import { pi, type SandboxRunOptions, type SandboxRunResult, type SandboxHooks, type SandboxProvider } from "@ai-hero/sandcastle";
-import type { Logger } from "pino";
-import type { PlannerIssue } from "../types.mts";
-import { runWithConcurrencyLimit } from "../helpers/concurrency.mts";
+import { exec } from 'node:child_process';
+import { promisify } from 'node:util';
+import {
+  pi,
+  type SandboxHooks,
+  type SandboxProvider,
+  type SandboxRunOptions,
+  type SandboxRunResult,
+} from '@ai-hero/sandcastle';
+import type { Logger } from 'pino';
+import { runWithConcurrencyLimit } from '../helpers/concurrency.mts';
+import type { PlannerIssue } from '../types.mts';
+
+const execAsync = promisify(exec);
 
 export type CreateSandboxFn = (options: {
   branch: string;
@@ -42,10 +52,10 @@ export async function runExecutionPhase(
 
     try {
       const implementResult = await sandbox.run({
-        name: "implementer",
+        name: 'implementer',
         maxIterations: 100,
-        agent: pi("opencode-go/deepseek-v4-pro"),
-        promptFile: "./.sandcastle/implement-prompt.md",
+        agent: pi('opencode-go/deepseek-v4-pro'),
+        promptFile: './.sandcastle/implement-prompt.md',
         promptArgs: {
           TASK_ID: issue.id,
           ISSUE_TITLE: issue.title,
@@ -54,11 +64,29 @@ export async function runExecutionPhase(
       });
 
       if (implementResult.commits.length > 0) {
+        // Run Biome linter + formatter on the implementer's changes.
+        // Auto-commit fixes so the reviewer sees clean, style-compliant code.
+        try {
+          await execAsync('pnpm check');
+          const { stdout: statusOut } = await execAsync('git status --porcelain');
+          if (statusOut.trim()) {
+            await execAsync('git add -A');
+            await execAsync('git commit -m "chore: biome fixes"');
+            logger?.info({ issueId: issue.id }, 'Biome applied fixes, committed');
+          }
+        } catch (biomeErr) {
+          // Non-fatal: the reviewer may still catch style issues.
+          logger?.warn(
+            { err: biomeErr, issueId: issue.id },
+            'Biome check failed — continuing to reviewer',
+          );
+        }
+
         const reviewResult = await sandbox.run({
-          name: "reviewer",
+          name: 'reviewer',
           maxIterations: 1,
-          agent: pi("opencode-go/deepseek-v4-pro"),
-          promptFile: "./.sandcastle/review-prompt.md",
+          agent: pi('opencode-go/deepseek-v4-pro'),
+          promptFile: './.sandcastle/review-prompt.md',
           promptArgs: { BRANCH: issue.branch },
         });
 
@@ -77,7 +105,7 @@ export async function runExecutionPhase(
   const settled = await runWithConcurrencyLimit(issues, maxParallelTasks, executeOneIssue);
 
   for (const [i, outcome] of settled.entries()) {
-    if (outcome.status === "rejected") {
+    if (outcome.status === 'rejected') {
       const issue = issues[i];
       if (issue) {
         logger?.error({ err: outcome.reason }, `✗ ${issue.id} (${issue.branch}) failed`);
@@ -87,7 +115,7 @@ export async function runExecutionPhase(
 
   const completedIssues = settled.flatMap((outcome, i) => {
     const issue = issues[i];
-    if (outcome.status === "fulfilled" && outcome.value.commits.length > 0 && issue) {
+    if (outcome.status === 'fulfilled' && outcome.value.commits.length > 0 && issue) {
       return [issue];
     }
     return [];
