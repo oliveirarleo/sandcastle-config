@@ -21,6 +21,18 @@ index de05f314bb32d8276b917bec5f989e6d5742ce9f..9afacb233293026f5a52a6ea05a0f484
              toolCall: (name, formattedArgs) => appendToLog(`${name}(${formattedArgs})`),
          };
      })),
+diff --git a/dist/Orchestrator.js b/dist/Orchestrator.js
+index 9ebc1e3d68f9502b0bf070c9bde7d9518e579dc6..b3fd77c9b63f0b6e656ed4d1cb8e714cb40b24b0 100644
+--- a/dist/Orchestrator.js
++++ b/dist/Orchestrator.js
+@@ -213,6 +213,7 @@
+                 const { result: agentOutput, sessionId } = yield* invokeAgent(ctx.sandbox, ctx.sandboxRepoDir, fullPrompt, provider, idleTimeoutMs, onText, onToolCall, onIdleWarning, options._idleWarningIntervalMs, iterationResumeSession, options.signal);
+                 // Flush any remaining buffered text deltas
+                 textBuffer.dispose();
++                yield* display.text("\n");
+                 yield* display.status(label("Agent stopped"), "info");
+                 // Capture session while sandbox is still alive
+                 let sessionFilePath;
 diff --git a/dist/TextDeltaBuffer.js b/dist/TextDeltaBuffer.js
 index 99c91059334e7af36bf888d2c14378432cc41878..2333913afa0215563a965f4d8ff8dc21107aef7f 100644
 --- a/dist/TextDeltaBuffer.js
