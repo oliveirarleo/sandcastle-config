@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-	type BeadsIssue,
-	BeadsIssueSchema,
-	PlannerOutputSchema,
-} from "./types.mts";
+import { type BeadsIssue, BeadsIssueSchema, PlannerOutputSchema } from "./types.mts";
 
 describe("BeadsIssueSchema", () => {
 	it("parses a valid issue", () => {
@@ -15,15 +11,11 @@ describe("BeadsIssueSchema", () => {
 	});
 
 	it("throws when status is missing", () => {
-		expect(() =>
-			BeadsIssueSchema.parse({ id: "test-1", title: "Test Issue" }),
-		).toThrow();
+		expect(() => BeadsIssueSchema.parse({ id: "test-1", title: "Test Issue" })).toThrow();
 	});
 
 	it("throws when title is missing", () => {
-		expect(() =>
-			BeadsIssueSchema.parse({ id: "test-1", status: "open" }),
-		).toThrow();
+		expect(() => BeadsIssueSchema.parse({ id: "test-1", status: "open" })).toThrow();
 	});
 });
 
@@ -34,13 +26,11 @@ describe("PlannerOutputSchema", () => {
 		};
 		const parsedPlan = PlannerOutputSchema.parse(validPlan);
 		expect(parsedPlan.issues).toHaveLength(1);
-		expect(parsedPlan.issues[0]!.id).toBe("i1");
+		expect(parsedPlan.issues[0]?.id).toBe("i1");
 	});
 
 	it("throws when branch is missing", () => {
-		expect(() =>
-			PlannerOutputSchema.parse({ issues: [{ id: "i1", title: "Issue 1" }] }),
-		).toThrow();
+		expect(() => PlannerOutputSchema.parse({ issues: [{ id: "i1", title: "Issue 1" }] })).toThrow();
 	});
 });
 

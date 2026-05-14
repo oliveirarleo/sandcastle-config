@@ -5,6 +5,9 @@
 	"main": "src/hello.ts",
 	"scripts": {
 		"test": "vitest run",
+		"check": ".sandcastle/bin/biome check --write",
+		"lint": ".sandcastle/bin/biome lint",
+		"format": ".sandcastle/bin/biome format --write",
 		"build:sc-image": "sandcastle docker build-image --dockerfile .sandcastle/Containerfile",
 		"sc": "tsx .sandcastle/main.mts",
 		"typecheck": "tsc --noEmit"
@@ -20,6 +23,7 @@
 	},
 	"devDependencies": {
 		"@ai-hero/sandcastle": "^0.5.10",
+		"@biomejs/biome": "^2.4.15",
 		"@types/node": "^25.7.0",
 		"tsx": "^4.21.0",
 		"typescript": "^6.0.3",

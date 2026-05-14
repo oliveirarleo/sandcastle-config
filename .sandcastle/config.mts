@@ -29,10 +29,7 @@ export const sandboxMounts =
 				},
 			];
 
-if (
-	sandboxMounts.length > 0 &&
-	!fs.existsSync(resolveHostPath("~/.pi/agent"))
-) {
+if (sandboxMounts.length > 0 && !fs.existsSync(resolveHostPath("~/.pi/agent"))) {
 	throw new Error(
 		"The ~/.pi/agent directory is missing. Sandcastle mounts this directory into each sandbox so agents can access skills, settings, and sessions. Either create the directory or set SANDCASTLE_NO_PI_MOUNT=1 to skip the mount.",
 	);
@@ -73,15 +70,11 @@ export const MAX_ITERATIONS = 10;
 
 // Maximum number of bead tasks to run in parallel during Phase 2.
 // Default: 3. Override with SANDCASTLE_MAX_PARALLEL env var.
-export const MAX_PARALLEL_TASKS = Number(
-	process.env.SANDCASTLE_MAX_PARALLEL ?? "3",
-);
+export const MAX_PARALLEL_TASKS = Number(process.env.SANDCASTLE_MAX_PARALLEL ?? "3");
 
 // How long to sleep between polls for new open issues (milliseconds).
 // Default: 5 minutes. Override with SANDCASTLE_POLL_MS env var.
-export const POLL_INTERVAL_MS = Number(
-	process.env.SANDCASTLE_POLL_MS ?? "300000",
-);
+export const POLL_INTERVAL_MS = Number(process.env.SANDCASTLE_POLL_MS ?? "300000");
 
 // ---------------------------------------------------------------------------
 // Sandbox hooks

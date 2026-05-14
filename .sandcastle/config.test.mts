@@ -16,9 +16,7 @@ describe("resolveHostPath", () => {
 	});
 
 	it("expands ~ to home directory", () => {
-		expect(resolveHostPath("~/relative")).toBe(
-			path.join(os.homedir(), "relative"),
-		);
+		expect(resolveHostPath("~/relative")).toBe(path.join(os.homedir(), "relative"));
 	});
 
 	it("returns plain paths unchanged", () => {
@@ -38,9 +36,7 @@ describe("readOpencodeApiKey", () => {
 	});
 
 	it("returns undefined for a missing file", () => {
-		expect(
-			readOpencodeApiKey(path.join(tmpDir, "missing.json")),
-		).toBeUndefined();
+		expect(readOpencodeApiKey(path.join(tmpDir, "missing.json"))).toBeUndefined();
 	});
 
 	it("returns undefined for invalid JSON", () => {
@@ -57,10 +53,7 @@ describe("readOpencodeApiKey", () => {
 
 	it("returns the key when it exists", () => {
 		const goodFile = path.join(tmpDir, "good.json");
-		fs.writeFileSync(
-			goodFile,
-			JSON.stringify({ "opencode-go": { key: "secret123" } }),
-		);
+		fs.writeFileSync(goodFile, JSON.stringify({ "opencode-go": { key: "secret123" } }));
 		expect(readOpencodeApiKey(goodFile)).toBe("secret123");
 	});
 });

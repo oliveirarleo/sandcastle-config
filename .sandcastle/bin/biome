@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Wrapper so biome works both on NixOS (via nix-shell) and inside Docker sandboxes (via npm binary).
+BIOME_BIN="./node_modules/.bin/biome"
+
+# Try the npm binary first (works on standard Linux / Docker).
+if [ -x "$BIOME_BIN" ] && "$BIOME_BIN" --version >/dev/null 2>&1; then
+  exec "$BIOME_BIN" "$@"
+fi
+
+# NixOS — use the system-provided biome.
+exec nix-shell -p biome --command "biome $*"

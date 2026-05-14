@@ -1,9 +1,4 @@
-import type {
-	RunOptions,
-	RunResult,
-	SandboxHooks,
-	SandboxProvider,
-} from "@ai-hero/sandcastle";
+import type { RunOptions, RunResult, SandboxHooks, SandboxProvider } from "@ai-hero/sandcastle";
 import { describe, expect, it } from "vitest";
 import { extractPlanJson, runPlanner } from "./plan.mts";
 
@@ -47,14 +42,14 @@ describe("runPlanner", () => {
 		);
 
 		expect(issues).toHaveLength(2);
-		expect(issues[0]!.id).toBe("issue-1");
-		expect(issues[0]!.title).toBe("Fix auth bug");
-		expect(issues[0]!.branch).toBe("sandcastle/issue-1-fix-auth");
-		expect(issues[1]!.id).toBe("issue-2");
+		expect(issues[0]?.id).toBe("issue-1");
+		expect(issues[0]?.title).toBe("Fix auth bug");
+		expect(issues[0]?.branch).toBe("sandcastle/issue-1-fix-auth");
+		expect(issues[1]?.id).toBe("issue-2");
 		expect(calls).toHaveLength(1);
-		expect(calls[0]!.name).toBe("planner");
-		expect(calls[0]!.maxIterations).toBe(1);
-		expect(calls[0]!.promptFile).toBe("./.sandcastle/plan-prompt.md");
+		expect(calls[0]?.name).toBe("planner");
+		expect(calls[0]?.maxIterations).toBe(1);
+		expect(calls[0]?.promptFile).toBe("./.sandcastle/plan-prompt.md");
 	});
 
 	it("throws when <plan> tag is missing", async () => {
@@ -65,21 +60,14 @@ describe("runPlanner", () => {
 
 	it("throws when plan contains invalid JSON", async () => {
 		await expect(() =>
-			runPlanner(
-				() => mockRun("<plan>not json</plan>"),
-				NOOP_SANDBOX,
-				NOOP_HOOKS,
-			),
+			runPlanner(() => mockRun("<plan>not json</plan>"), NOOP_SANDBOX, NOOP_HOOKS),
 		).rejects.toThrow(/JSON/);
 	});
 
 	it("throws when plan violates schema", async () => {
 		await expect(() =>
 			runPlanner(
-				() =>
-					mockRun(
-						`<plan>${JSON.stringify({ issues: [{ id: "only-id" }] })}</plan>`,
-					),
+				() => mockRun(`<plan>${JSON.stringify({ issues: [{ id: "only-id" }] })}</plan>`),
 				NOOP_SANDBOX,
 				NOOP_HOOKS,
 			),
@@ -101,13 +89,9 @@ describe("runPlanner", () => {
 		const nestedPlan = `<plan>\` tags:
 
 <plan>${validPlan}</plan>`;
-		const nested = await runPlanner(
-			() => mockRun(nestedPlan),
-			NOOP_SANDBOX,
-			NOOP_HOOKS,
-		);
+		const nested = await runPlanner(() => mockRun(nestedPlan), NOOP_SANDBOX, NOOP_HOOKS);
 		expect(nested).toHaveLength(2);
-		expect(nested[0]!.id).toBe("issue-1");
+		expect(nested[0]?.id).toBe("issue-1");
 	});
 
 	it("handles markdown code-fenced JSON inside <plan>", async () => {
@@ -116,24 +100,16 @@ describe("runPlanner", () => {
 ${validPlan}
 \`\`\`
 </plan>`;
-		const fenced = await runPlanner(
-			() => mockRun(fencedPlan),
-			NOOP_SANDBOX,
-			NOOP_HOOKS,
-		);
+		const fenced = await runPlanner(() => mockRun(fencedPlan), NOOP_SANDBOX, NOOP_HOOKS);
 		expect(fenced).toHaveLength(2);
-		expect(fenced[0]!.id).toBe("issue-1");
+		expect(fenced[0]?.id).toBe("issue-1");
 	});
 
 	it("handles JSON with leading text preamble", async () => {
 		const preamblePlan = `<plan>Here is the plan:
 
 ${validPlan}</plan>`;
-		const preamble = await runPlanner(
-			() => mockRun(preamblePlan),
-			NOOP_SANDBOX,
-			NOOP_HOOKS,
-		);
+		const preamble = await runPlanner(() => mockRun(preamblePlan), NOOP_SANDBOX, NOOP_HOOKS);
 		expect(preamble).toHaveLength(2);
 	});
 });

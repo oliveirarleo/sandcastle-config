@@ -63,12 +63,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
 	// -------------------------------------------------------------------------
 	// Phase 1: Plan
 	// -------------------------------------------------------------------------
-	const issues = await runPlanner(
-		sandcastle.run,
-		sandboxProvider,
-		hooks,
-		logger,
-	);
+	const issues = await runPlanner(sandcastle.run, sandboxProvider, hooks, logger);
 
 	if (issues.length === 0) {
 		// No unblocked work — either everything is done or everything is blocked.
@@ -111,13 +106,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
 	// process stops there instead of leaving the repo in an ambiguous
 	// partially-merged state.
 	// ---------------------------------------------------------------------
-	await runMergePhase(
-		sandcastle.run,
-		completedIssues,
-		sandboxProvider,
-		hooks,
-		logger,
-	);
+	await runMergePhase(sandcastle.run, completedIssues, sandboxProvider, hooks, logger);
 
 	logger.info("Branches merged.");
 }

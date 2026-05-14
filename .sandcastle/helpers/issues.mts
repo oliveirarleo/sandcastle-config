@@ -1,5 +1,5 @@
+import { setTimeout as delay } from "node:timers/promises";
 import type { Logger } from "pino";
-import { setTimeout as delay } from "timers/promises";
 import { z } from "zod";
 import { $ } from "zx";
 import { type BeadsIssue, BeadsIssueSchema } from "../types.mts";

@@ -13,9 +13,11 @@ export async function runWithConcurrencyLimit<T, R>(
 	const executing = new Set<Promise<void>>();
 
 	for (let i = 0; i < items.length; i++) {
+		const item = items[i];
+		if (item === undefined) continue;
 		const task = (async () => {
 			try {
-				const value = await fn(items[i]!, i);
+				const value = await fn(item, i);
 				results[i] = { status: "fulfilled", value };
 			} catch (reason) {
 				results[i] = { status: "rejected", reason };

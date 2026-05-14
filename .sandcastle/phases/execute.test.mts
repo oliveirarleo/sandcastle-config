@@ -15,15 +15,12 @@ import { type CreateSandboxFn, runExecutionPhase } from "./execute.mts";
 const NOOP_SANDBOX = {} as unknown as SandboxProvider;
 const NOOP_HOOKS = {} as unknown as SandboxHooks;
 
-function mockRunResult(
-	commits: { sha: string }[] = [{ sha: "abc123" }],
-): SandboxRunResult {
+function mockRunResult(commits: { sha: string }[] = [{ sha: "abc123" }]): SandboxRunResult {
 	return { stdout: "", commits, iterations: [], logFilePath: undefined };
 }
 
 function mockSandbox(
-	runImpl: (opts: SandboxRunOptions) => Promise<SandboxRunResult> = async () =>
-		mockRunResult(),
+	runImpl: (opts: SandboxRunOptions) => Promise<SandboxRunResult> = async () => mockRunResult(),
 ) {
 	let closed = false;
 	return {
@@ -55,29 +52,18 @@ function sandboxWithCloseTracker(
 
 describe("runExecutionPhase", () => {
 	it("completes a single issue when implementer produces commits", async () => {
-		const issues: PlannerIssue[] = [
-			{ id: "issue-1", title: "Fix A", branch: "branch-a" },
-		];
+		const issues: PlannerIssue[] = [{ id: "issue-1", title: "Fix A", branch: "branch-a" }];
 
 		const createSandbox: CreateSandboxFn = async () => mockSandbox();
 
-		const result = await runExecutionPhase(
-			issues,
-			createSandbox,
-			NOOP_SANDBOX,
-			NOOP_HOOKS,
-			[],
-			3,
-		);
+		const result = await runExecutionPhase(issues, createSandbox, NOOP_SANDBOX, NOOP_HOOKS, [], 3);
 
 		expect(result).toHaveLength(1);
-		expect(result[0]!.id).toBe("issue-1");
+		expect(result[0]?.id).toBe("issue-1");
 	});
 
 	it("does not complete issue when implementer produces no commits", async () => {
-		const issues: PlannerIssue[] = [
-			{ id: "issue-1", title: "Fix A", branch: "branch-a" },
-		];
+		const issues: PlannerIssue[] = [{ id: "issue-1", title: "Fix A", branch: "branch-a" }];
 
 		let runCount = 0;
 		const createSandbox: CreateSandboxFn = async () =>
@@ -86,41 +72,23 @@ describe("runExecutionPhase", () => {
 				return mockRunResult([]);
 			});
 
-		const result = await runExecutionPhase(
-			issues,
-			createSandbox,
-			NOOP_SANDBOX,
-			NOOP_HOOKS,
-			[],
-			3,
-		);
+		const result = await runExecutionPhase(issues, createSandbox, NOOP_SANDBOX, NOOP_HOOKS, [], 3);
 
 		expect(result).toHaveLength(0);
 		expect(runCount).toBe(1);
 	});
 
 	it("runs reviewer after implementer with commits", async () => {
-		const issues: PlannerIssue[] = [
-			{ id: "issue-1", title: "Fix A", branch: "branch-a" },
-		];
+		const issues: PlannerIssue[] = [{ id: "issue-1", title: "Fix A", branch: "branch-a" }];
 
 		const runNames: string[] = [];
 		const createSandbox: CreateSandboxFn = async () =>
 			mockSandbox(async (opts) => {
 				runNames.push(opts.name ?? "unknown");
-				return mockRunResult(
-					opts.name === "implementer" ? [{ sha: "abc" }] : [],
-				);
+				return mockRunResult(opts.name === "implementer" ? [{ sha: "abc" }] : []);
 			});
 
-		const result = await runExecutionPhase(
-			issues,
-			createSandbox,
-			NOOP_SANDBOX,
-			NOOP_HOOKS,
-			[],
-			3,
-		);
+		const result = await runExecutionPhase(issues, createSandbox, NOOP_SANDBOX, NOOP_HOOKS, [], 3);
 
 		expect(result).toHaveLength(1);
 		expect(runNames).toEqual(["implementer", "reviewer"]);
@@ -133,23 +101,14 @@ describe("runExecutionPhase", () => {
 		];
 
 		const processed: string[] = [];
-		const createSandbox: CreateSandboxFn = async (opts) => {
+		const createSandbox: CreateSandboxFn = async (_opts) => {
 			return mockSandbox(async (runOpts) => {
 				processed.push(runOpts.name ?? "unknown");
-				return mockRunResult([
-					{ sha: String(runOpts.promptArgs?.BRANCH ?? "unknown") },
-				]);
+				return mockRunResult([{ sha: String(runOpts.promptArgs?.BRANCH ?? "unknown") }]);
 			});
 		};
 
-		const result = await runExecutionPhase(
-			issues,
-			createSandbox,
-			NOOP_SANDBOX,
-			NOOP_HOOKS,
-			[],
-			2,
-		);
+		const result = await runExecutionPhase(issues, createSandbox, NOOP_SANDBOX, NOOP_HOOKS, [], 2);
 
 		expect(result).toHaveLength(2);
 		expect(processed).toHaveLength(4);
@@ -168,17 +127,10 @@ describe("runExecutionPhase", () => {
 			return mockSandbox();
 		};
 
-		const result = await runExecutionPhase(
-			issues,
-			createSandbox,
-			NOOP_SANDBOX,
-			NOOP_HOOKS,
-			[],
-			2,
-		);
+		const result = await runExecutionPhase(issues, createSandbox, NOOP_SANDBOX, NOOP_HOOKS, [], 2);
 
 		expect(result).toHaveLength(1);
-		expect(result[0]!.id).toBe("issue-2");
+		expect(result[0]?.id).toBe("issue-2");
 	});
 
 	it("closes sandbox after each issue", async () => {

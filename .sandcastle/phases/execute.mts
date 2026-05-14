@@ -38,9 +38,7 @@ export async function runExecutionPhase(
 	maxParallelTasks: number,
 	logger?: Logger,
 ): Promise<PlannerIssue[]> {
-	async function executeOneIssue(
-		issue: PlannerIssue,
-	): Promise<SandboxRunResult> {
+	async function executeOneIssue(issue: PlannerIssue): Promise<SandboxRunResult> {
 		const sandbox = await createSandbox({
 			branch: issue.branch,
 			sandbox: sandboxProvider,
@@ -82,31 +80,20 @@ export async function runExecutionPhase(
 		}
 	}
 
-	const settled = await runWithConcurrencyLimit(
-		issues,
-		maxParallelTasks,
-		executeOneIssue,
-	);
+	const settled = await runWithConcurrencyLimit(issues, maxParallelTasks, executeOneIssue);
 
 	for (const [i, outcome] of settled.entries()) {
 		if (outcome.status === "rejected") {
 			const issue = issues[i];
 			if (issue) {
-				logger?.error(
-					{ err: outcome.reason },
-					`✗ ${issue.id} (${issue.branch}) failed`,
-				);
+				logger?.error({ err: outcome.reason }, `✗ ${issue.id} (${issue.branch}) failed`);
 			}
 		}
 	}
 
 	const completedIssues = settled.flatMap((outcome, i) => {
 		const issue = issues[i];
-		if (
-			outcome.status === "fulfilled" &&
-			outcome.value.commits.length > 0 &&
-			issue
-		) {
+		if (outcome.status === "fulfilled" && outcome.value.commits.length > 0 && issue) {
 			return [issue];
 		}
 		return [];
