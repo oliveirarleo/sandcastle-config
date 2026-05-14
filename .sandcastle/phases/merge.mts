@@ -1,18 +1,10 @@
 import { exec } from 'node:child_process';
 import { promisify } from 'node:util';
-import {
-  pi,
-  type RunOptions,
-  type RunResult,
-  type SandboxHooks,
-  type SandboxProvider,
-} from '@ai-hero/sandcastle';
+import { pi, type SandboxHooks, type SandboxProvider } from '@ai-hero/sandcastle';
 import type { Logger } from 'pino';
-import type { PlannerIssue } from '../types.mts';
+import type { PlannerIssue, RunSandbox } from '../types.mts';
 
 const execAsync = promisify(exec);
-
-export type RunSandbox = (options: RunOptions) => Promise<RunResult>;
 
 /**
  * Commit `.beads/issues.jsonl` if it has uncommitted changes.

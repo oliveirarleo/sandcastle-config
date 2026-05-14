@@ -1,14 +1,6 @@
-import {
-  pi,
-  type RunOptions,
-  type RunResult,
-  type SandboxHooks,
-  type SandboxProvider,
-} from '@ai-hero/sandcastle';
+import { pi, type SandboxHooks, type SandboxProvider } from '@ai-hero/sandcastle';
 import type { Logger } from 'pino';
-import { type PlannerIssue, PlannerOutputSchema } from '../types.mts';
-
-export type RunSandbox = (options: RunOptions) => Promise<RunResult>;
+import { type PlannerIssue, PlannerOutputSchema, type RunSandbox } from '../types.mts';
 
 /**
  * Robustly extract a JSON object from LLM agent output that may contain
@@ -17,7 +9,7 @@ export type RunSandbox = (options: RunOptions) => Promise<RunResult>;
 export function extractPlanJson(stdout: string): string {
   const planMatch = stdout.match(/<plan>([\s\S]*?)<\/plan>/);
   if (!planMatch) {
-    throw new Error('Planning agent did not produce a <plan> tag.\n\n' + stdout);
+    throw new Error(`Planning agent did not produce a <plan> tag.\n\n${stdout}`);
   }
 
   let content = planMatch[1]!.trim();
@@ -38,7 +30,7 @@ export function extractPlanJson(stdout: string): string {
   // Find the outermost JSON object in whatever text remains.
   const jsonMatch = content.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
-    throw new Error("Planning agent's <plan> content does not contain a JSON object.\n\n" + stdout);
+    throw new Error(`Planning agent's <plan> content does not contain a JSON object.\n\n${stdout}`);
   }
 
   return jsonMatch[0];

@@ -1,3 +1,4 @@
+import type { RunOptions, RunResult } from '@ai-hero/sandcastle';
 import { z } from 'zod';
 
 export const BeadsIssueSchema = z.object({
@@ -18,3 +19,5 @@ export const PlannerOutputSchema = z.object({
 
 export type BeadsIssue = z.infer<typeof BeadsIssueSchema>;
 export type PlannerIssue = z.infer<typeof PlannerIssueSchema>;
+
+export type RunSandbox = (options: RunOptions) => Promise<RunResult>;
