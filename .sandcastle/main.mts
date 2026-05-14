@@ -17,8 +17,6 @@
 // issues are picked up after each round of merges.
 
 import * as sandcastle from "@ai-hero/sandcastle";
-import { $ } from "zx";
-import { setTimeout } from "timers/promises";
 import { z } from "zod";
 import pino from "pino";
 import {
@@ -29,8 +27,9 @@ import {
   hooks,
   copyToWorktree,
 } from "./config.mts";
-import { BeadsIssueSchema, PlannerOutputSchema, type BeadsIssue } from "./types.mts";
+import { PlannerOutputSchema } from "./types.mts";
 import { runWithConcurrencyLimit } from "./helpers/concurrency.mts";
+import { waitForOpenIssues } from "./helpers/issues.mts";
 import { runMergePhase } from "./phases/merge.mts";
 
 // ---------------------------------------------------------------------------
@@ -46,33 +45,6 @@ const logger = pino({
 });
 
 // ---------------------------------------------------------------------------
-// Helper: check for open issues via beads (bd)
-// ---------------------------------------------------------------------------
-
-async function getOpenIssues(): Promise<BeadsIssue[]> {
-  try {
-    const stdout = await $`BD_JSON_ENVELOPE=1 bd ready --json --label ready-for-agent`.text();
-    const parsed = JSON.parse(stdout);
-    return z.object({ data: z.array(BeadsIssueSchema) }).parse(parsed).data;
-  } catch (err) {
-    logger.error({ err }, "Failed to query open issues");
-    return [];
-  }
-}
-
-async function waitUntilThereAreOpenIssues(): Promise<BeadsIssue[]> {
-  while (true) {
-    const openIssues = await getOpenIssues();
-    logger.debug({ openIssues }, "Polled for open issues");
-    if (openIssues.length > 0) {
-      logger.info({ count: openIssues.length }, "Found open issues");
-      return openIssues;
-    }
-    await setTimeout(POLL_INTERVAL_MS);
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Main loop
 // ---------------------------------------------------------------------------
 
@@ -80,9 +52,9 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // -----------------------------------------------------------------------
   // Poll for open issues
   // -----------------------------------------------------------------------
-  logger.debug("About to call waitUntilThereAreOpenIssues...");
-  const openIssues = await waitUntilThereAreOpenIssues();
-  logger.debug("waitUntilThereAreOpenIssues returned.");
+  logger.debug("About to call waitForOpenIssues...");
+  const openIssues = await waitForOpenIssues(POLL_INTERVAL_MS, logger);
+  logger.debug("waitForOpenIssues returned.");
   logger.info(
     { count: openIssues.length, iteration, maxIterations: MAX_ITERATIONS },
     "Starting planner",
