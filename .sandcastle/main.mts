@@ -45,6 +45,15 @@ const logger = pino({
 });
 
 // ---------------------------------------------------------------------------
+// Process-level safety net
+// ---------------------------------------------------------------------------
+// Catches stray unhandled rejections (e.g. Effect defects from orDie /
+// uncaught Effect.runPromise) that would otherwise crash the process.
+process.on("unhandledRejection", (reason) => {
+  logger.error({ err: reason }, "Unhandled promise rejection caught by safety net");
+});
+
+// ---------------------------------------------------------------------------
 // Main loop
 // ---------------------------------------------------------------------------
 
@@ -63,12 +72,18 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // -------------------------------------------------------------------------
   // Phase 1: Plan
   // -------------------------------------------------------------------------
-  const issues = await runPlanner(
-    sandcastle.run,
-    sandboxProvider,
-    hooks,
-    logger,
-  );
+  let issues: Awaited<ReturnType<typeof runPlanner>>;
+  try {
+    issues = await runPlanner(
+      sandcastle.run,
+      sandboxProvider,
+      hooks,
+      logger,
+    );
+  } catch (err) {
+    logger.error({ err }, "Phase 1 (plan) failed — exiting loop");
+    break;
+  }
 
   if (issues.length === 0) {
     // No unblocked work — either everything is done or everything is blocked.
@@ -80,15 +95,21 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // Phase 2: Execute + Review
   // -------------------------------------------------------------------------
 
-  const completedIssues = await runExecutionPhase(
-    issues,
-    sandcastle.createSandbox,
-    sandboxProvider,
-    hooks,
-    copyToWorktree,
-    MAX_PARALLEL_TASKS,
-    logger,
-  );
+  let completedIssues: Awaited<ReturnType<typeof runExecutionPhase>>;
+  try {
+    completedIssues = await runExecutionPhase(
+      issues,
+      sandcastle.createSandbox,
+      sandboxProvider,
+      hooks,
+      copyToWorktree,
+      MAX_PARALLEL_TASKS,
+      logger,
+    );
+  } catch (err) {
+    logger.error({ err }, "Phase 2 (execute) failed — skipping merge, continuing loop");
+    continue;
+  }
 
   const completedBranches = completedIssues.map((i) => i.branch);
 
@@ -107,17 +128,22 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // Phase 3: Merge
   //
   // Merge each completed branch into the current branch one at a time.
-  // This isolates failures: if one merge conflicts or fails tests, the
-  // process stops there instead of leaving the repo in an ambiguous
-  // partially-merged state.
+  // Per-branch error isolation is handled inside runMergePhase (one
+  // failing merge does not block remaining branches). If the entire
+  // merge phase throws (e.g. sandbox provider failure), log and continue.
   // ---------------------------------------------------------------------
-  await runMergePhase(
-    sandcastle.run,
-    completedIssues,
-    sandboxProvider,
-    hooks,
-    logger,
-  );
+  try {
+    await runMergePhase(
+      sandcastle.run,
+      completedIssues,
+      sandboxProvider,
+      hooks,
+      logger,
+    );
+  } catch (err) {
+    logger.error({ err }, "Phase 3 (merge) failed — continuing loop");
+    continue;
+  }
 
   logger.info("Branches merged.");
 }

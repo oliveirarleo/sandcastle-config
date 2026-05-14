@@ -13,18 +13,25 @@ export async function runMergePhase(
 ): Promise<void> {
   for (const issue of completedIssues) {
     logger?.info({ branch: issue.branch, issueId: issue.id }, "Merging branch");
-    await runSandbox({
-      hooks,
-      sandbox: sandboxProvider,
-      name: "merger",
-      maxIterations: 1,
-      agent: pi("opencode-go/deepseek-v4-pro"),
-      promptFile: "./.sandcastle/merge-prompt.md",
-      branchStrategy: { type: "merge-to-head" },
-      promptArgs: {
-        BRANCHES: `- ${issue.branch}`,
-        ISSUES: `- ${issue.id}: ${issue.title}`,
-      },
-    });
+    try {
+      await runSandbox({
+        hooks,
+        sandbox: sandboxProvider,
+        name: "merger",
+        maxIterations: 1,
+        agent: pi("opencode-go/deepseek-v4-pro"),
+        promptFile: "./.sandcastle/merge-prompt.md",
+        branchStrategy: { type: "merge-to-head" },
+        promptArgs: {
+          BRANCHES: `- ${issue.branch}`,
+          ISSUES: `- ${issue.id}: ${issue.title}`,
+        },
+      });
+    } catch (err) {
+      logger?.error(
+        { err, branch: issue.branch, issueId: issue.id },
+        `Merge failed for ${issue.id} (${issue.branch}), continuing with remaining branches`,
+      );
+    }
   }
 }
