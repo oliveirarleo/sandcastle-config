@@ -1,6 +1,6 @@
 import assert from "assert";
 import type { RunOptions, RunResult, SandboxHooks, SandboxProvider } from "@ai-hero/sandcastle";
-import { runPlanner } from "./plan.mts";
+import { runPlanner, extractPlanJson } from "./plan.mts";
 
 // ---------------------------------------------------------------------------
 // Happy path — valid <plan> with issues
@@ -93,5 +93,65 @@ const empty = await runPlanner(
 );
 
 assert.deepStrictEqual(empty, [], "should return empty array for empty plan");
+
+// ---------------------------------------------------------------------------
+// Regression: nested <plan> tags (LLM parrots the prompt's literal example)
+// Agent emits: <plan>` tags:\n\n<plan>{"issues":[...]}</plan>
+// ---------------------------------------------------------------------------
+const nestedPlan = `<plan>\` tags:
+
+<plan>${validPlan}</plan>`;
+const nested = await runPlanner(
+  () => mockRun(nestedPlan),
+  {} as unknown as SandboxProvider,
+  {} as unknown as SandboxHooks,
+);
+assert.strictEqual(nested.length, 2, "nested plan: should return two issues");
+assert.strictEqual(nested[0]!.id, "issue-1", "nested plan: first issue id should match");
+
+// ---------------------------------------------------------------------------
+// Regression: markdown code-fenced JSON inside <plan>
+// Agent emits: <plan>\n```json\n{"issues":[...]}\n```\n</plan>
+// ---------------------------------------------------------------------------
+const fencedPlan = `<plan>
+\`\`\`json
+${validPlan}
+\`\`\`
+</plan>`;
+const fenced = await runPlanner(
+  () => mockRun(fencedPlan),
+  {} as unknown as SandboxProvider,
+  {} as unknown as SandboxHooks,
+);
+assert.strictEqual(fenced.length, 2, "fenced plan: should return two issues");
+assert.strictEqual(fenced[0]!.id, "issue-1", "fenced plan: first issue id should match");
+
+// ---------------------------------------------------------------------------
+// Regression: JSON with leading text preamble before the object
+// Agent emits: <plan>Here is the plan:\n{"issues":[...]}</plan>
+// ---------------------------------------------------------------------------
+const preamblePlan = `<plan>Here is the plan:
+
+${validPlan}</plan>`;
+const preamble = await runPlanner(
+  () => mockRun(preamblePlan),
+  {} as unknown as SandboxProvider,
+  {} as unknown as SandboxHooks,
+);
+assert.strictEqual(preamble.length, 2, "preamble plan: should return two issues");
+
+// ---------------------------------------------------------------------------
+// Unit: extractPlanJson with combined nesting + fencing + preamble
+// ---------------------------------------------------------------------------
+const combined = `<plan>\` tags:
+
+<plan>
+\`\`\`json
+Here is the plan:
+${validPlan}
+\`\`\`
+</plan>`;
+const combinedJson = JSON.parse(extractPlanJson(combined));
+assert.strictEqual(combinedJson.issues.length, 2, "combined: should extract two issues");
 
 console.log("All plan phase tests passed!");

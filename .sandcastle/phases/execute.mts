@@ -44,7 +44,7 @@ export async function runExecutionPhase(
       const implementResult = await sandbox.run({
         name: "implementer",
         maxIterations: 100,
-        agent: pi("opencode-go/kimi-k2.6"),
+        agent: pi("opencode-go/deepseek-v4-pro"),
         promptFile: "./.sandcastle/implement-prompt.md",
         promptArgs: {
           TASK_ID: issue.id,
@@ -57,7 +57,7 @@ export async function runExecutionPhase(
         const reviewResult = await sandbox.run({
           name: "reviewer",
           maxIterations: 1,
-          agent: pi("opencode-go/kimi-k2.6"),
+          agent: pi("opencode-go/deepseek-v4-pro"),
           promptFile: "./.sandcastle/review-prompt.md",
           promptArgs: { BRANCH: issue.branch },
         });
