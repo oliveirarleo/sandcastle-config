@@ -75,9 +75,52 @@ const sandboxProvider = docker({
 // Raise this if your backlog is large; lower it for a quick smoke-test run.
 const MAX_ITERATIONS = 10;
 
+// Maximum number of bead tasks to run in parallel during Phase 2.
+// Default: 3. Override with SANDCASTLE_MAX_PARALLEL env var.
+const MAX_PARALLEL_TASKS = Number(process.env.SANDCASTLE_MAX_PARALLEL ?? "3");
+
 // How long to sleep between polls for new open issues (milliseconds).
 // Default: 5 minutes. Override with SANDCASTLE_POLL_MS env var.
 const POLL_INTERVAL_MS = Number(process.env.SANDCASTLE_POLL_MS ?? "300000");
+
+// ---------------------------------------------------------------------------
+// Helper: run tasks with a concurrency limit
+// ---------------------------------------------------------------------------
+
+async function runWithConcurrencyLimit<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<PromiseSettledResult<R>[]> {
+  const results: PromiseSettledResult<R>[] = new Array(items.length);
+  const executing: Promise<void>[] = [];
+
+  for (let i = 0; i < items.length; i++) {
+    const p = Promise.resolve().then(() => fn(items[i]!, i)).then(
+      (value) => { results[i] = { status: "fulfilled", value }; },
+      (reason) => { results[i] = { status: "rejected", reason }; },
+    );
+
+    executing.push(p);
+
+    if (executing.length >= limit) {
+      await Promise.race(executing);
+      // Remove settled promises from the executing array
+      for (let j = executing.length - 1; j >= 0; j--) {
+        const settled = await Promise.race([
+          executing[j]!.then(() => true, () => true),
+          Promise.resolve(false),
+        ]);
+        if (settled) {
+          executing.splice(j, 1);
+        }
+      }
+    }
+  }
+
+  await Promise.all(executing);
+  return results;
+}
 
 // ---------------------------------------------------------------------------
 // Helper: check for open issues via beads (bd)
@@ -105,7 +148,7 @@ async function getOpenIssues(): Promise<BeadsIssue[]> {
   try {
     const stdout = await $`BD_JSON_ENVELOPE=1 bd ready --json --label ready-for-agent`.text();
     const parsed = JSON.parse(stdout);
-    return z.object({ data: z.array(BeadsIssueSchema) }).parse(parsed);
+    return z.object({ data: z.array(BeadsIssueSchema) }).parse(parsed).data;
   } catch (err) {
     console.error("Failed to query open issues:", err);
     return [];
@@ -115,7 +158,8 @@ async function getOpenIssues(): Promise<BeadsIssue[]> {
 async function waitUntilThereAreOpenIssues(): Promise<BeadsIssue[]> {
   while (true) {
     const openIssues = await getOpenIssues();
-    if (openIssues.length >= 0) {
+    console.log("[DEBUG] ", openIssues)
+    if (openIssues.length > 0) {
       console.log(`Found ${openIssues.length} issue(s).`);
       return openIssues;
     }
@@ -143,7 +187,9 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // -----------------------------------------------------------------------
   // Poll for open issues
   // -----------------------------------------------------------------------
+  console.log("[DEBUG] About to call waitUntilThereAreOpenIssues...");
   const openIssues = await waitUntilThereAreOpenIssues();
+  console.log("[DEBUG] waitUntilThereAreOpenIssues returned.")
   console.log(`Found ${openIssues.length} open issue(s). Starting planner...`);
   console.log(`\n=== Iteration ${iteration}/${MAX_ITERATIONS} ===\n`);
 
@@ -156,6 +202,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   //
   // It outputs a <plan> JSON block — we parse that to drive Phase 2.
   // -------------------------------------------------------------------------
+  console.log("[DEBUG] About to start planner sandcastle.run...");
   const plan = await sandcastle.run({
     hooks,
     sandbox: sandboxProvider,
@@ -168,6 +215,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     promptFile: "./.sandcastle/plan-prompt.md",
   });
 
+  console.log("[DEBUG] Planner sandcastle.run returned.");
   // Extract the <plan>…</plan> block from the agent's stdout.
   const planMatch = plan.stdout.match(/<plan>([\s\S]*?)<\/plan>/);
   if (!planMatch) {
@@ -202,8 +250,10 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // Promise.allSettled means one failing pipeline doesn't cancel the others.
   // -------------------------------------------------------------------------
 
-  const settled = await Promise.allSettled(
-    issues.map(async (issue) => {
+  const settled = await runWithConcurrencyLimit(
+    issues,
+    MAX_PARALLEL_TASKS,
+    async (issue) => {
       const sandbox = await sandcastle.createSandbox({
         branch: issue.branch,
         sandbox: sandboxProvider,
@@ -249,7 +299,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
       } finally {
         await sandbox.close();
       }
-    }),
+    },
   );
 
   // Log any agents that threw (network error, sandbox crash, etc.).
