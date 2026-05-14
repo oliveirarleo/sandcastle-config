@@ -3,7 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
-  MAX_ITERATIONS,
+  GRACEFUL_SHUTDOWN_MS,
   MAX_PARALLEL_TASKS,
   POLL_INTERVAL_MS,
   readOpencodeApiKey,
@@ -59,8 +59,8 @@ describe('readOpencodeApiKey', () => {
 });
 
 describe('constants', () => {
-  it('MAX_ITERATIONS is 10', () => {
-    expect(MAX_ITERATIONS).toBe(10);
+  it('GRACEFUL_SHUTDOWN_MS is 10 minutes', () => {
+    expect(GRACEFUL_SHUTDOWN_MS).toBe(10 * 60 * 1000);
   });
 
   it('MAX_PARALLEL_TASKS is a positive number', () => {

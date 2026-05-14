@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { docker } from '@ai-hero/sandcastle/sandboxes/docker';
+import pino from 'pino';
 
 // ---------------------------------------------------------------------------
 // Path helpers
@@ -64,9 +65,8 @@ export const sandboxProvider = docker({
 // Orchestration constants
 // ---------------------------------------------------------------------------
 
-// Maximum number of plan→execute→merge cycles before stopping.
-// Raise this if your backlog is large; lower it for a quick smoke-test run.
-export const MAX_ITERATIONS = 10;
+// How long to allow for graceful shutdown after SIGTERM before force-exit.
+export const GRACEFUL_SHUTDOWN_MS = 10 * 60 * 1000;
 
 // Maximum number of bead tasks to run in parallel during Phase 2.
 // Default: 3. Override with SANDCASTLE_MAX_PARALLEL env var.
@@ -85,6 +85,19 @@ export const POLL_INTERVAL_MS = Number(process.env.SANDCASTLE_POLL_MS ?? '300000
 export const hooks = {
   sandbox: { onSandboxReady: [{ command: 'CI=true pnpm install' }] },
 };
+
+// ---------------------------------------------------------------------------
+// Logger
+// ---------------------------------------------------------------------------
+
+// Logger: pretty-print when stdout is a TTY, raw JSON otherwise (systemd).
+export const logger = pino({
+  level: process.env.LOG_LEVEL ?? 'info',
+  transport:
+    process.env.NODE_ENV !== 'production'
+      ? { target: 'pino-pretty', options: { colorize: true } }
+      : undefined,
+});
 
 // ---------------------------------------------------------------------------
 // Worktree copy list
