@@ -6,7 +6,7 @@ import type {
 } from '@ai-hero/sandcastle';
 import { describe, expect, it } from 'vitest';
 import type { PlannerIssue } from '../types.mts';
-import { type CreateSandboxFn, type ExecuteLabelCallbacks, runExecutionPhase } from './execute.mts';
+import { type CreateSandboxFn, runExecutionPhase } from './execute.mts';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -59,7 +59,7 @@ describe('runExecutionPhase', () => {
     const result = await runExecutionPhase(issues, createSandbox, NOOP_SANDBOX, NOOP_HOOKS, [], 3);
 
     expect(result).toHaveLength(1);
-    expect(result[0]!.id).toBe('issue-1');
+    expect(result[0]?.id).toBe('issue-1');
   });
 
   it('does not complete issue when implementer produces no commits', async () => {
@@ -101,7 +101,7 @@ describe('runExecutionPhase', () => {
     ];
 
     const processed: string[] = [];
-    const createSandbox: CreateSandboxFn = async (opts) => {
+    const createSandbox: CreateSandboxFn = async (_opts) => {
       return mockSandbox(async (runOpts) => {
         processed.push(runOpts.name ?? 'unknown');
         return mockRunResult([{ sha: String(runOpts.promptArgs?.BRANCH ?? 'unknown') }]);
@@ -130,7 +130,7 @@ describe('runExecutionPhase', () => {
     const result = await runExecutionPhase(issues, createSandbox, NOOP_SANDBOX, NOOP_HOOKS, [], 2);
 
     expect(result).toHaveLength(1);
-    expect(result[0]!.id).toBe('issue-2');
+    expect(result[0]?.id).toBe('issue-2');
   });
 
   it('closes sandbox after each issue', async () => {

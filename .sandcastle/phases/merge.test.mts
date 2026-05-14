@@ -23,12 +23,12 @@ describe('runMergePhase', () => {
     await runMergePhase(mockRunSandbox, issues, NOOP_SANDBOX, NOOP_HOOKS, undefined);
 
     expect(calls).toHaveLength(2);
-    expect(calls[0]!.promptArgs!.BRANCHES).toBe('- branch-a');
-    expect(calls[1]!.promptArgs!.BRANCHES).toBe('- branch-b');
-    expect(calls[0]!.promptArgs!.ISSUES).toBe('- issue-1: Fix A');
-    expect(calls[1]!.promptArgs!.ISSUES).toBe('- issue-2: Fix B');
-    expect(calls[0]!.branchStrategy).toEqual({ type: 'merge-to-head' });
-    expect(calls[1]!.branchStrategy).toEqual({ type: 'merge-to-head' });
+    expect(calls[0]?.promptArgs?.BRANCHES).toBe('- branch-a');
+    expect(calls[1]?.promptArgs?.BRANCHES).toBe('- branch-b');
+    expect(calls[0]?.promptArgs?.ISSUES).toBe('- issue-1: Fix A');
+    expect(calls[1]?.promptArgs?.ISSUES).toBe('- issue-2: Fix B');
+    expect(calls[0]?.branchStrategy).toEqual({ type: 'merge-to-head' });
+    expect(calls[1]?.branchStrategy).toEqual({ type: 'merge-to-head' });
   });
 
   it('isolates per-branch errors: one failing merge does not block remaining branches', async () => {

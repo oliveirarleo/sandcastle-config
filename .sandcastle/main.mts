@@ -34,7 +34,6 @@ import {
 import { getIssuesByLabel, waitForOpenIssues } from './helpers/issues.mts';
 import {
   addLabelCmd,
-  classifyResumeLabel,
   EXECUTED,
   EXECUTING,
   MERGED,
@@ -73,7 +72,11 @@ process.on('unhandledRejection', (reason) => {
 // ---------------------------------------------------------------------------
 
 /** Remove a previous sandcastle:* label and add the new one for an issue. */
-async function transitionLabel(issueId: string, fromLabel: string, toLabel: string): Promise<void> {
+async function _transitionLabel(
+  issueId: string,
+  fromLabel: string,
+  toLabel: string,
+): Promise<void> {
   try {
     await $`bd update "${issueId}" --remove-label ${fromLabel} --add-label ${toLabel}`;
     logger.debug({ issueId, from: fromLabel, to: toLabel }, 'Label transition');

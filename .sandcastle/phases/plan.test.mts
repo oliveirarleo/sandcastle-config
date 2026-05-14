@@ -34,14 +34,14 @@ describe('runPlanner', () => {
     );
 
     expect(issues).toHaveLength(2);
-    expect(issues[0]!.id).toBe('issue-1');
-    expect(issues[0]!.title).toBe('Fix auth bug');
-    expect(issues[0]!.branch).toBe('sandcastle/issue-1-fix-auth');
-    expect(issues[1]!.id).toBe('issue-2');
+    expect(issues[0]?.id).toBe('issue-1');
+    expect(issues[0]?.title).toBe('Fix auth bug');
+    expect(issues[0]?.branch).toBe('sandcastle/issue-1-fix-auth');
+    expect(issues[1]?.id).toBe('issue-2');
     expect(calls).toHaveLength(1);
-    expect(calls[0]!.name).toBe('planner');
-    expect(calls[0]!.maxIterations).toBe(1);
-    expect(calls[0]!.promptFile).toBe('./.sandcastle/plan-prompt.md');
+    expect(calls[0]?.name).toBe('planner');
+    expect(calls[0]?.maxIterations).toBe(1);
+    expect(calls[0]?.promptFile).toBe('./.sandcastle/plan-prompt.md');
   });
 
   it('throws when <plan> tag is missing', async () => {
@@ -83,7 +83,7 @@ describe('runPlanner', () => {
 <plan>${validPlan}</plan>`;
     const nested = await runPlanner(() => mockRun(nestedPlan), NOOP_SANDBOX, NOOP_HOOKS);
     expect(nested).toHaveLength(2);
-    expect(nested[0]!.id).toBe('issue-1');
+    expect(nested[0]?.id).toBe('issue-1');
   });
 
   it('handles markdown code-fenced JSON inside <plan>', async () => {
@@ -94,7 +94,7 @@ ${validPlan}
 </plan>`;
     const fenced = await runPlanner(() => mockRun(fencedPlan), NOOP_SANDBOX, NOOP_HOOKS);
     expect(fenced).toHaveLength(2);
-    expect(fenced[0]!.id).toBe('issue-1');
+    expect(fenced[0]?.id).toBe('issue-1');
   });
 
   it('handles JSON with leading text preamble', async () => {
@@ -138,7 +138,7 @@ describe('runPlanner with onPlanComplete', () => {
 
     expect(issues).toHaveLength(2);
     expect(captured).toHaveLength(2);
-    expect(captured[0]!.id).toBe('issue-1');
+    expect(captured[0]?.id).toBe('issue-1');
   });
 
   it('calls onPlanComplete even for empty plan', async () => {

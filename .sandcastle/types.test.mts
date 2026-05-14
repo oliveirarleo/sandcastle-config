@@ -24,7 +24,7 @@ describe('PlannerOutputSchema', () => {
     const validPlan = { issues: [{ id: 'i1', title: 'Issue 1', branch: 'branch-1' }] };
     const parsedPlan = PlannerOutputSchema.parse(validPlan);
     expect(parsedPlan.issues).toHaveLength(1);
-    expect(parsedPlan.issues[0]!.id).toBe('i1');
+    expect(parsedPlan.issues[0]?.id).toBe('i1');
   });
 
   it('throws when branch is missing', () => {

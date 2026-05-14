@@ -12,9 +12,9 @@ describe('getOpenIssues', () => {
   it('parses valid JSON envelope with two issues', async () => {
     const result = await getOpenIssues(undefined, async () => validEnvelope);
     expect(result).toHaveLength(2);
-    expect(result[0]!.id).toBe('issue-1');
-    expect(result[0]!.title).toBe('First Issue');
-    expect(result[1]!.status).toBe('in_progress');
+    expect(result[0]?.id).toBe('issue-1');
+    expect(result[0]?.title).toBe('First Issue');
+    expect(result[1]?.status).toBe('in_progress');
   });
 
   it('returns empty array when JSON is invalid', async () => {
@@ -84,8 +84,8 @@ describe('getIssuesByLabel', () => {
       async () => labeledData,
     );
     expect(result).toHaveLength(2);
-    expect(result[0]!.id).toBe('issue-a');
-    expect(result[1]!.id).toBe('issue-b');
+    expect(result[0]?.id).toBe('issue-a');
+    expect(result[1]?.id).toBe('issue-b');
   });
 
   it('returns empty array for label with no matches', async () => {

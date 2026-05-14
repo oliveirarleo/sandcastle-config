@@ -17,28 +17,28 @@ export type RunSandbox = (options: RunOptions) => Promise<RunResult>;
 export function extractPlanJson(stdout: string): string {
   const planMatch = stdout.match(/<plan>([\s\S]*?)<\/plan>/);
   if (!planMatch) {
-    throw new Error('Planning agent did not produce a <plan> tag.\n\n' + stdout);
+    throw new Error(`Planning agent did not produce a <plan> tag.\n\n${stdout}`);
   }
 
-  let content = planMatch[1]!.trim();
+  let content = planMatch[1]?.trim();
 
   // Handle nested <plan> tags (LLM may emit the prompt's example literally).
   // Extract the innermost <plan> content.
   const inner = content.match(/<plan>([\s\S]*?)<\/plan>/);
   if (inner) {
-    content = inner[1]!.trim();
+    content = inner[1]?.trim();
   }
 
   // Strip markdown code fences: ```json ... ``` or ``` ... ```
   const fenceMatch = content.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
   if (fenceMatch) {
-    content = fenceMatch[1]!.trim();
+    content = fenceMatch[1]?.trim();
   }
 
   // Find the outermost JSON object in whatever text remains.
   const jsonMatch = content.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
-    throw new Error("Planning agent's <plan> content does not contain a JSON object.\n\n" + stdout);
+    throw new Error(`Planning agent's <plan> content does not contain a JSON object.\n\n${stdout}`);
   }
 
   return jsonMatch[0];
