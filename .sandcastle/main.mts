@@ -10,8 +10,8 @@
 //                               reviewer runs in the same sandbox on the same
 //                               branch (1 iteration). All issue pipelines run
 //                               concurrently via Promise.allSettled().
-//   Phase 3 (Merge):            A single agent merges all completed branches
-//                               into the current branch.
+//   Phase 3 (Merge):            Merge each completed branch into the current
+//                               branch one at a time for isolation.
 //
 // The outer loop repeats up to MAX_ITERATIONS times so that newly unblocked
 // issues are picked up after each round of merges.
@@ -94,32 +94,21 @@ async function runWithConcurrencyLimit<T, R>(
   fn: (item: T, index: number) => Promise<R>,
 ): Promise<PromiseSettledResult<R>[]> {
   const results: PromiseSettledResult<R>[] = new Array(items.length);
-  const executing: Promise<void>[] = [];
+  const iterator = items.entries();
 
-  for (let i = 0; i < items.length; i++) {
-    const p = Promise.resolve().then(() => fn(items[i]!, i)).then(
-      (value) => { results[i] = { status: "fulfilled", value }; },
-      (reason) => { results[i] = { status: "rejected", reason }; },
-    );
-
-    executing.push(p);
-
-    if (executing.length >= limit) {
-      await Promise.race(executing);
-      // Remove settled promises from the executing array
-      for (let j = executing.length - 1; j >= 0; j--) {
-        const settled = await Promise.race([
-          executing[j]!.then(() => true, () => true),
-          Promise.resolve(false),
-        ]);
-        if (settled) {
-          executing.splice(j, 1);
-        }
+  async function worker(): Promise<void> {
+    for (const [i, item] of iterator) {
+      try {
+        results[i] = { status: "fulfilled", value: await fn(item, i) };
+      } catch (reason) {
+        results[i] = { status: "rejected", reason };
       }
     }
   }
 
-  await Promise.all(executing);
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, worker),
+  );
   return results;
 }
 
@@ -159,9 +148,7 @@ async function getOpenIssues(): Promise<BeadsIssue[]> {
 async function waitUntilThereAreOpenIssues(): Promise<BeadsIssue[]> {
   while (true) {
     const openIssues = await getOpenIssues();
-    console.log("[DEBUG] ", openIssues)
     if (openIssues.length > 0) {
-      console.log(`Found ${openIssues.length} issue(s).`);
       return openIssues;
     }
     await setTimeout(POLL_INTERVAL_MS);
@@ -188,9 +175,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // -----------------------------------------------------------------------
   // Poll for open issues
   // -----------------------------------------------------------------------
-  console.log("[DEBUG] About to call waitUntilThereAreOpenIssues...");
   const openIssues = await waitUntilThereAreOpenIssues();
-  console.log("[DEBUG] waitUntilThereAreOpenIssues returned.")
   console.log(`Found ${openIssues.length} open issue(s). Starting planner...`);
   console.log(`\n=== Iteration ${iteration}/${MAX_ITERATIONS} ===\n`);
 
@@ -203,7 +188,6 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   //
   // It outputs a <plan> JSON block — we parse that to drive Phase 2.
   // -------------------------------------------------------------------------
-  console.log("[DEBUG] About to start planner sandcastle.run...");
   const plan = await sandcastle.run({
     hooks,
     sandbox: sandboxProvider,
@@ -216,7 +200,6 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     promptFile: "./.sandcastle/plan-prompt.md",
   });
 
-  console.log("[DEBUG] Planner sandcastle.run returned.");
   // Extract the <plan>…</plan> block from the agent's stdout.
   const planMatch = plan.stdout.match(/<plan>([\s\S]*?)<\/plan>/);
   if (!planMatch) {

@@ -1,4 +1,10 @@
 import * as sandcastle from "@ai-hero/sandcastle";
+import type {
+  RunOptions,
+  RunResult,
+  SandboxHooks,
+  SandboxProvider,
+} from "@ai-hero/sandcastle";
 
 export interface MergeableIssue {
   branch: string;
@@ -6,13 +12,13 @@ export interface MergeableIssue {
   title: string;
 }
 
-export type RunSandbox = typeof sandcastle.run;
+export type RunSandbox = (options: RunOptions) => Promise<RunResult>;
 
 export async function runMergePhase(
   runSandbox: RunSandbox,
   completedIssues: MergeableIssue[],
-  sandboxProvider: any,
-  hooks: any,
+  sandboxProvider: SandboxProvider,
+  hooks: SandboxHooks,
 ): Promise<void> {
   for (const issue of completedIssues) {
     await runSandbox({
