@@ -52,32 +52,21 @@ async function runWithConcurrencyLimit<T, R>(
   fn: (item: T, index: number) => Promise<R>,
 ): Promise<PromiseSettledResult<R>[]> {
   const results: PromiseSettledResult<R>[] = new Array(items.length);
-  const executing: Promise<void>[] = [];
 
-  for (let i = 0; i < items.length; i++) {
-    const p = Promise.resolve().then(() => fn(items[i]!, i)).then(
-      (value) => { results[i] = { status: "fulfilled", value }; },
-      (reason) => { results[i] = { status: "rejected", reason }; },
-    );
-
-    executing.push(p);
-
-    if (executing.length >= limit) {
-      await Promise.race(executing);
-      // Remove settled promises from the executing array
-      for (let j = executing.length - 1; j >= 0; j--) {
-        const settled = await Promise.race([
-          executing[j]!.then(() => true, () => true),
-          Promise.resolve(false),
-        ]);
-        if (settled) {
-          executing.splice(j, 1);
-        }
+  let nextIndex = 0;
+  async function worker(): Promise<void> {
+    while (nextIndex < items.length) {
+      const i = nextIndex++;
+      try {
+        const value = await fn(items[i]!, i);
+        results[i] = { status: "fulfilled", value };
+      } catch (reason) {
+        results[i] = { status: "rejected", reason };
       }
     }
   }
 
-  await Promise.all(executing);
+  await Promise.allSettled(Array.from({ length: limit }, () => worker()));
   return results;
 }
 

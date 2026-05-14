@@ -27,38 +27,67 @@ assert.strictEqual(resolveHostPath("plain"), "plain");
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "config-test-"));
 
-// Returns undefined when the file does not exist.
-assert.strictEqual(readOpencodeApiKey(path.join(tmpDir, "missing.json")), undefined);
+assert.strictEqual(
+  readOpencodeApiKey(path.join(tmpDir, "missing.json")),
+  undefined,
+  "should return undefined for a missing file",
+);
 
-// Returns undefined when the file is not valid JSON.
 const badJson = path.join(tmpDir, "bad.json");
 fs.writeFileSync(badJson, "not json");
-assert.strictEqual(readOpencodeApiKey(badJson), undefined);
+assert.strictEqual(
+  readOpencodeApiKey(badJson),
+  undefined,
+  "should return undefined for invalid JSON",
+);
 
-// Returns undefined when the key is missing.
 const missingKey = path.join(tmpDir, "missing-key.json");
 fs.writeFileSync(missingKey, JSON.stringify({ other: "value" }));
-assert.strictEqual(readOpencodeApiKey(missingKey), undefined);
+assert.strictEqual(
+  readOpencodeApiKey(missingKey),
+  undefined,
+  "should return undefined when the key is missing",
+);
 
-// Returns the key when it exists.
 const goodFile = path.join(tmpDir, "good.json");
-fs.writeFileSync(goodFile, JSON.stringify({ "opencode-go": { key: "secret123" } }));
-assert.strictEqual(readOpencodeApiKey(goodFile), "secret123");
+fs.writeFileSync(
+  goodFile,
+  JSON.stringify({ "opencode-go": { key: "secret123" } }),
+);
+assert.strictEqual(
+  readOpencodeApiKey(goodFile),
+  "secret123",
+  "should return the key when it exists",
+);
 
-// Cleanup
 fs.rmSync(tmpDir, { recursive: true, force: true });
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-assert.strictEqual(typeof MAX_ITERATIONS, "number");
-assert.strictEqual(MAX_ITERATIONS > 0, true);
+assert.strictEqual(MAX_ITERATIONS, 10, "MAX_ITERATIONS should be 10");
 
-assert.strictEqual(typeof MAX_PARALLEL_TASKS, "number");
-assert.strictEqual(MAX_PARALLEL_TASKS > 0, true);
+assert.strictEqual(
+  typeof MAX_PARALLEL_TASKS,
+  "number",
+  "MAX_PARALLEL_TASKS should be a number",
+);
+assert.strictEqual(
+  MAX_PARALLEL_TASKS > 0,
+  true,
+  "MAX_PARALLEL_TASKS should be positive",
+);
 
-assert.strictEqual(typeof POLL_INTERVAL_MS, "number");
-assert.strictEqual(POLL_INTERVAL_MS > 0, true);
+assert.strictEqual(
+  typeof POLL_INTERVAL_MS,
+  "number",
+  "POLL_INTERVAL_MS should be a number",
+);
+assert.strictEqual(
+  POLL_INTERVAL_MS > 0,
+  true,
+  "POLL_INTERVAL_MS should be positive",
+);
 
 console.log("All config tests passed!");
