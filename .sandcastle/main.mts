@@ -1,20 +1,8 @@
-// Parallel Planner with Review — three-phase orchestration loop
-//
-// This template drives a multi-phase workflow:
-//   Phase 1 (Plan):             An opus agent analyzes open issues, builds a
-//                               dependency graph, and outputs a <plan> JSON
-//                               listing unblocked issues with branch names.
-//   Phase 2 (Execute + Review): For each issue, a sandbox is created via
-//                               createSandbox(). The implementer runs first
-//                               (100 iterations). If it produces commits, a
-//                               reviewer runs in the same sandbox on the same
-//                               branch (1 iteration). All issue pipelines run
-//                               concurrently via Promise.allSettled().
-//   Phase 3 (Merge):            A single agent merges all completed branches
-//                               into the current branch.
-//
-// The outer loop repeats up to MAX_ITERATIONS times so that newly unblocked
-// issues are picked up after each round of merges.
+// Three-phase orchestration loop:
+//   1. Plan — analyze open issues, output unblocked work as a <plan> JSON.
+//   2. Execute — run implementer + reviewer sandboxes concurrently.
+//   3. Merge  — merge completed branches one at a time.
+// Repeats up to MAX_ITERATIONS so newly unblocked issues are picked up after each merge round.
 
 import * as sandcastle from "@ai-hero/sandcastle";
 import pino from "pino";
@@ -101,10 +89,9 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
 	// ---------------------------------------------------------------------
 	// Phase 3: Merge
 	//
-	// Merge each completed branch into the current branch one at a time.
-	// This isolates failures: if one merge conflicts or fails tests, the
-	// process stops there instead of leaving the repo in an ambiguous
-	// partially-merged state.
+	// Merge each completed branch one at a time. If a merge fails, the
+	// process stops immediately rather than leaving the repo in an
+	// ambiguous partially-merged state.
 	// ---------------------------------------------------------------------
 	await runMergePhase(sandcastle.run, completedIssues, sandboxProvider, hooks, logger);
 
