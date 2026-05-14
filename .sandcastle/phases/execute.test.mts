@@ -193,4 +193,92 @@ describe('runExecutionPhase', () => {
     expect(result).toHaveLength(0);
     expect(wasClosed()).toBe(true);
   });
+
+  it('invokes label callbacks at phase transitions', async () => {
+    const calls: string[] = [];
+
+    const createSandbox: CreateSandboxFn = async () => mockSandbox();
+
+    await runExecutionPhase(
+      [{ id: 'issue-1', title: 'Fix A', branch: 'branch-a' }],
+      createSandbox,
+      NOOP_SANDBOX,
+      NOOP_HOOKS,
+      [],
+      3,
+      undefined,
+      {
+        onImplementStart: async (id) => { calls.push(`implement-start:${id}`); },
+        onReviewStart: async (id) => { calls.push(`review-start:${id}`); },
+        onExecuteComplete: async (id) => { calls.push(`execute-complete:${id}`); },
+      },
+    );
+
+    expect(calls).toEqual([
+      'implement-start:issue-1',
+      'review-start:issue-1',
+      'execute-complete:issue-1',
+    ]);
+  });
+
+  it('skips review callbacks when implementer produces no commits', async () => {
+    const calls: string[] = [];
+
+    const createSandbox: CreateSandboxFn = async () =>
+      mockSandbox(async () => mockRunResult([]));
+
+    await runExecutionPhase(
+      [{ id: 'issue-1', title: 'Fix A', branch: 'branch-a' }],
+      createSandbox,
+      NOOP_SANDBOX,
+      NOOP_HOOKS,
+      [],
+      3,
+      undefined,
+      {
+        onImplementStart: async (id) => { calls.push(`implement-start:${id}`); },
+        onReviewStart: async (id) => { calls.push(`review-start:${id}`); },
+        onExecuteComplete: async (id) => { calls.push(`execute-complete:${id}`); },
+      },
+    );
+
+    // No review because no commits, but execute-complete still fires
+    expect(calls).toEqual([
+      'implement-start:issue-1',
+      'execute-complete:issue-1',
+    ]);
+  });
+
+  it('invokes callbacks for multiple issues', async () => {
+    const calls: string[] = [];
+
+    const createSandbox: CreateSandboxFn = async () => mockSandbox();
+
+    await runExecutionPhase(
+      [
+        { id: 'issue-1', title: 'Fix A', branch: 'branch-a' },
+        { id: 'issue-2', title: 'Fix B', branch: 'branch-b' },
+      ],
+      createSandbox,
+      NOOP_SANDBOX,
+      NOOP_HOOKS,
+      [],
+      2,
+      undefined,
+      {
+        onImplementStart: async (id) => { calls.push(`implement-start:${id}`); },
+        onReviewStart: async (id) => { calls.push(`review-start:${id}`); },
+        onExecuteComplete: async (id) => { calls.push(`execute-complete:${id}`); },
+      },
+    );
+
+    // Both issues get full cycle
+    expect(calls).toContain('implement-start:issue-1');
+    expect(calls).toContain('implement-start:issue-2');
+    expect(calls).toContain('review-start:issue-1');
+    expect(calls).toContain('review-start:issue-2');
+    expect(calls).toContain('execute-complete:issue-1');
+    expect(calls).toContain('execute-complete:issue-2');
+    expect(calls).toHaveLength(6);
+  });
 });

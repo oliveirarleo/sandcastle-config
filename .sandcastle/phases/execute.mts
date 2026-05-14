@@ -1,6 +1,7 @@
 import { pi, type SandboxRunOptions, type SandboxRunResult, type SandboxHooks, type SandboxProvider } from "@ai-hero/sandcastle";
 import type { Logger } from "pino";
 import type { PlannerIssue } from "../types.mts";
+import { LABEL_EXECUTING, LABEL_REVIEWING, LABEL_EXECUTED } from "../helpers/labels.mts";
 import { runWithConcurrencyLimit } from "../helpers/concurrency.mts";
 
 export type CreateSandboxFn = (options: {
@@ -12,6 +13,16 @@ export type CreateSandboxFn = (options: {
   run: (options: SandboxRunOptions) => Promise<SandboxRunResult>;
   close: () => Promise<unknown>;
 }>;
+
+/** Callback invoked at each phase transition during execute. */
+export interface ExecuteLabelCallbacks {
+  /** Called when implementer starts for an issue. */
+  onImplementStart?: (issueId: string) => Promise<void>;
+  /** Called when reviewer starts for an issue. */
+  onReviewStart?: (issueId: string) => Promise<void>;
+  /** Called when implement + review complete for an issue. */
+  onExecuteComplete?: (issueId: string) => Promise<void>;
+}
 
 /**
  * Run implementer + reviewer sandbox pipelines for each planned issue.
@@ -31,6 +42,7 @@ export async function runExecutionPhase(
   copyToWorktree: string[],
   maxParallelTasks: number,
   logger?: Logger,
+  labels?: ExecuteLabelCallbacks,
 ): Promise<PlannerIssue[]> {
   async function executeOneIssue(issue: PlannerIssue): Promise<SandboxRunResult> {
     const sandbox = await createSandbox({
@@ -41,6 +53,9 @@ export async function runExecutionPhase(
     });
 
     try {
+      // Transition planned → executing
+      await labels?.onImplementStart?.(issue.id);
+
       const implementResult = await sandbox.run({
         name: "implementer",
         maxIterations: 100,
@@ -54,6 +69,9 @@ export async function runExecutionPhase(
       });
 
       if (implementResult.commits.length > 0) {
+        // Transition executing → reviewing
+        await labels?.onReviewStart?.(issue.id);
+
         const reviewResult = await sandbox.run({
           name: "reviewer",
           maxIterations: 1,
@@ -62,11 +80,17 @@ export async function runExecutionPhase(
           promptArgs: { BRANCH: issue.branch },
         });
 
+        // Transition reviewing → executed
+        await labels?.onExecuteComplete?.(issue.id);
+
         return {
           ...reviewResult,
           commits: [...implementResult.commits, ...reviewResult.commits],
         };
       }
+
+      // No commits — still mark as executed (no work to review)
+      await labels?.onExecuteComplete?.(issue.id);
 
       return implementResult;
     } finally {

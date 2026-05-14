@@ -1,11 +1,48 @@
 import { describe, it, expect } from 'vitest';
-import { getOpenIssues, waitForOpenIssues } from './issues.mts';
+import { getOpenIssues, getIssuesByLabel, waitForOpenIssues } from './issues.mts';
 
 const validEnvelope = JSON.stringify({
   data: [
     { id: 'issue-1', title: 'First Issue', status: 'open' },
     { id: 'issue-2', title: 'Second Issue', status: 'in_progress' },
   ],
+});
+
+const labeledEnvelope = JSON.stringify({
+  data: [
+    { id: 'issue-3', title: 'Third Issue', status: 'open', labels: ['sandcastle:planned'] },
+    { id: 'issue-4', title: 'Fourth Issue', status: 'open', labels: ['ready-for-agent', 'sandcastle:planned'] },
+  ],
+});
+
+describe('getIssuesByLabel', () => {
+  it('parses issues with the requested label', async () => {
+    const result = await getIssuesByLabel(
+      'sandcastle:planned',
+      undefined,
+      async () => labeledEnvelope,
+    );
+    expect(result).toHaveLength(2);
+    expect(result[0]!.id).toBe('issue-3');
+    expect(result[0]!.labels).toEqual(['sandcastle:planned']);
+    expect(result[1]!.labels).toContain('sandcastle:planned');
+  });
+
+  it('returns empty array when query throws', async () => {
+    const result = await getIssuesByLabel('any-label', undefined, async () => {
+      throw new Error('command failed');
+    });
+    expect(result).toEqual([]);
+  });
+
+  it('returns empty array for invalid JSON', async () => {
+    const result = await getIssuesByLabel(
+      'any-label',
+      undefined,
+      async () => 'not json',
+    );
+    expect(result).toEqual([]);
+  });
 });
 
 describe('getOpenIssues', () => {

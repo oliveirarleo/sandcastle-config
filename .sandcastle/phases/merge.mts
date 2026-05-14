@@ -38,6 +38,23 @@ async function commitBeadsExportIfDirty(
   }
 }
 
+/**
+ * Check if a branch is already merged into HEAD.
+ * Returns true if `git branch --merged` lists the branch.
+ */
+async function isBranchMerged(
+  branch: string,
+  shell: ShellExec,
+): Promise<boolean> {
+  try {
+    const { stdout } = await shell("git branch --merged");
+    // Lines look like "  branch-name" or "* current-branch"
+    return stdout.split("\n").some((line) => line.trim().replace(/^\*\s*/, "") === branch);
+  } catch {
+    return false;
+  }
+}
+
 export interface MergePhaseOptions {
   runSandbox: RunSandbox;
   completedIssues: PlannerIssue[];
@@ -94,34 +111,45 @@ export async function runMergePhase(
 
     await commitBeadsExportIfDirty(shell, log);
 
-    try {
-      await runSandbox({
-        hooks: hks,
-        sandbox: provider,
-        name: "merger",
-        maxIterations: 1,
-        agent: pi("opencode-go/deepseek-v4-pro"),
-        promptFile: "./.sandcastle/merge-prompt.md",
-        branchStrategy: { type: "merge-to-head" },
-        promptArgs: {
-          BRANCHES: `- ${issue.branch}`,
-          ISSUES: `- ${issue.id}: ${issue.title}`,
-        },
-      });
-
-      log?.info({ branch: issue.branch, issueId: issue.id }, "Running pnpm install after merge");
+    // Safety net: if the branch is already merged (e.g., manual merge),
+    // skip the merger sandbox but still run pnpm install.
+    const alreadyMerged = await isBranchMerged(issue.branch, shell);
+    if (alreadyMerged) {
+      log?.info(
+        { branch: issue.branch, issueId: issue.id },
+        "Branch already merged — skipping merger sandbox",
+      );
+    } else {
       try {
-        await shell("CI=true pnpm install --no-frozen-lockfile");
-      } catch (installErr) {
-        log?.warn(
-          { err: installErr, branch: issue.branch, issueId: issue.id },
-          "pnpm install failed after merge — dependencies may be out of date",
+        await runSandbox({
+          hooks: hks,
+          sandbox: provider,
+          name: "merger",
+          maxIterations: 1,
+          agent: pi("opencode-go/deepseek-v4-pro"),
+          promptFile: "./.sandcastle/merge-prompt.md",
+          branchStrategy: { type: "merge-to-head" },
+          promptArgs: {
+            BRANCHES: `- ${issue.branch}`,
+            ISSUES: `- ${issue.id}: ${issue.title}`,
+          },
+        });
+      } catch (err) {
+        log?.error(
+          { err, branch: issue.branch, issueId: issue.id },
+          `Merge failed for ${issue.id} (${issue.branch}), continuing with remaining branches`,
         );
+        continue;
       }
-    } catch (err) {
-      log?.error(
-        { err, branch: issue.branch, issueId: issue.id },
-        `Merge failed for ${issue.id} (${issue.branch}), continuing with remaining branches`,
+    }
+
+    log?.info({ branch: issue.branch, issueId: issue.id }, "Running pnpm install after merge");
+    try {
+      await shell("CI=true pnpm install --no-frozen-lockfile");
+    } catch (installErr) {
+      log?.warn(
+        { err: installErr, branch: issue.branch, issueId: issue.id },
+        "pnpm install failed after merge — dependencies may be out of date",
       );
     }
   }

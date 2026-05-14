@@ -7,6 +7,7 @@
     "test": "vitest run",
     "build:sc-image": "sandcastle docker build-image --dockerfile .sandcastle/Containerfile",
     "sc": "tsx .sandcastle/main.mts",
+    "sandcastle:cleanup": "bd list --json --label-any 'sandcastle:planned,sandcastle:executing,sandcastle:reviewing,sandcastle:executed,sandcastle:merged' | jq -r '.[].id' | xargs -I{} bd update {} --remove-label sandcastle:planned --remove-label sandcastle:executing --remove-label sandcastle:reviewing --remove-label sandcastle:executed --remove-label sandcastle:merged",
     "typecheck": "tsc --noEmit"
   },
   "keywords": [],

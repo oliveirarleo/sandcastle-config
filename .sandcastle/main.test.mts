@@ -16,8 +16,56 @@ async function daemonLoop(deps: {
   signalContext: { shouldShutdown: boolean };
   /** After Phase 3, called to check if we should stop */
   onIterationComplete?: (iteration: number) => void;
+  /** Resume check: returns issues grouped by label, or null for normal flow */
+  checkResume?: () => Promise<{
+    executing: PlannerIssue[];
+    reviewing: PlannerIssue[];
+    executed: PlannerIssue[];
+  } | null>;
+  /** Called after planning to label each issue */
+  onPlanned?: (issues: PlannerIssue[]) => Promise<void>;
+  /** Called after successful merge to label each issue */
+  onMerged?: (issues: PlannerIssue[]) => Promise<void>;
 }): Promise<number> {
   let iteration = 0;
+
+  // Resume: if issues exist in executing/reviewing/executed state, route them
+  // before entering the normal poll loop.
+  if (deps.checkResume) {
+    try {
+      const resume = await deps.checkResume();
+      if (resume) {
+        const { executing, reviewing, executed } = resume;
+        const executeIssues = [...executing, ...reviewing];
+
+        // Route executing + reviewing through execute phase
+        let completed: PlannerIssue[] = [];
+        if (executeIssues.length > 0) {
+          try {
+            completed = await deps.runExecutionPhase(executeIssues);
+          } catch {
+            // execute failed — still try to merge already-executed issues
+          }
+        }
+
+        // Route executed + newly-completed through merge phase
+        const mergeIssues = [...executed, ...completed];
+        if (mergeIssues.length > 0) {
+          try {
+            await deps.runMergePhase(mergeIssues);
+          } catch {
+            // merge failed — continue to normal loop
+          }
+
+          if (deps.onMerged) {
+            await deps.onMerged(mergeIssues);
+          }
+        }
+      }
+    } catch {
+      // Resume check failed — fall through to normal flow
+    }
+  }
 
   while (true) {
     iteration++;
@@ -41,6 +89,11 @@ async function daemonLoop(deps: {
       break;
     }
 
+    // Label planned issues
+    if (deps.onPlanned) {
+      await deps.onPlanned(issues);
+    }
+
     // Phase 2: Execute + Review
     let completedIssues: PlannerIssue[];
     try {
@@ -59,6 +112,11 @@ async function daemonLoop(deps: {
       await deps.runMergePhase(completedIssues);
     } catch (err) {
       continue;
+    }
+
+    // Label merged issues
+    if (deps.onMerged) {
+      await deps.onMerged(completedIssues);
     }
 
     deps.onIterationComplete?.(iteration);
@@ -246,5 +304,193 @@ describe('daemonLoop', () => {
 
     // Merge should not be called when no commits produced
     expect(mergeCalls).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Resume-aware routing tests
+// ---------------------------------------------------------------------------
+
+describe('resume routing', () => {
+  let signalContext: { shouldShutdown: boolean };
+
+  beforeEach(() => {
+    signalContext = { shouldShutdown: false };
+  });
+
+  it('resumes executing issues: routes to execute then merge', async () => {
+    const plannedCalls: PlannerIssue[][] = [];
+    const mergedCalls: PlannerIssue[][] = [];
+    const executeCalls: PlannerIssue[][] = [];
+
+    const resumeIssue: PlannerIssue = { id: 'issue-1', title: 'Fix A', branch: 'branch-a' };
+
+    await daemonLoop({
+      signalContext,
+      heartbeat: vi.fn(),
+      waitForOpenIssues: vi.fn().mockResolvedValue([]),
+      runPlanner: vi.fn(),
+      runExecutionPhase: async (issues) => {
+        executeCalls.push(issues);
+        return issues;
+      },
+      runMergePhase: async (issues) => { mergedCalls.push(issues); },
+      checkResume: async () => ({
+        executing: [resumeIssue],
+        reviewing: [],
+        executed: [],
+      }),
+      onPlanned: async (issues) => { plannedCalls.push(issues); },
+      onMerged: async (issues) => {},
+    });
+
+    // Executing issue was routed to execute, then merge, planner NOT called
+    expect(executeCalls).toHaveLength(1);
+    expect(executeCalls[0]).toEqual([resumeIssue]);
+    expect(mergedCalls).toHaveLength(1);
+    expect(plannedCalls).toHaveLength(0); // planner was skipped
+  });
+
+  it('resumes reviewing issues: routes to execute (reviewer resumes, no implementer)', async () => {
+    const executeCalls: PlannerIssue[][] = [];
+
+    const resumeIssue: PlannerIssue = { id: 'issue-1', title: 'Fix A', branch: 'branch-a' };
+
+    await daemonLoop({
+      signalContext,
+      heartbeat: vi.fn(),
+      waitForOpenIssues: vi.fn().mockResolvedValue([]),
+      runPlanner: vi.fn(),
+      runExecutionPhase: async (issues) => {
+        executeCalls.push(issues);
+        return issues;
+      },
+      runMergePhase: async () => {},
+      checkResume: async () => ({
+        executing: [],
+        reviewing: [resumeIssue],
+        executed: [],
+      }),
+    });
+
+    // Reviewing issues go through execute phase (reviewer resumes)
+    expect(executeCalls).toHaveLength(1);
+    expect(executeCalls[0]).toEqual([resumeIssue]);
+  });
+
+  it('resumes executed issues: routes directly to merge, skips execute', async () => {
+    const executeCalls: PlannerIssue[][] = [];
+    const mergeCalls: PlannerIssue[][] = [];
+
+    const resumeIssue: PlannerIssue = { id: 'issue-1', title: 'Fix A', branch: 'branch-a' };
+
+    await daemonLoop({
+      signalContext,
+      heartbeat: vi.fn(),
+      waitForOpenIssues: vi.fn().mockResolvedValue([]),
+      runPlanner: vi.fn(),
+      runExecutionPhase: async (issues) => { executeCalls.push(issues); return []; },
+      runMergePhase: async (issues) => { mergeCalls.push(issues); },
+      checkResume: async () => ({
+        executing: [],
+        reviewing: [],
+        executed: [resumeIssue],
+      }),
+      onMerged: async () => {},
+    });
+
+    // Executed issues skip execute, go directly to merge
+    expect(executeCalls).toHaveLength(0);
+    expect(mergeCalls).toHaveLength(1);
+    expect(mergeCalls[0]).toEqual([resumeIssue]);
+  });
+
+  it('cold start (no resume): planner, execute, merge run normally', async () => {
+    const planCalls: number[] = [];
+    const plannedLabels: PlannerIssue[][] = [];
+    const mergedLabels: PlannerIssue[][] = [];
+
+    const issue: PlannerIssue = { id: 'issue-1', title: 'Fix A', branch: 'branch-a' };
+
+    await daemonLoop({
+      signalContext,
+      heartbeat: vi.fn(),
+      waitForOpenIssues: vi.fn()
+        .mockResolvedValueOnce([{ id: 'issue-1', title: 'Fix A', status: 'open' }])
+        .mockResolvedValueOnce([]),
+      runPlanner: async () => {
+        planCalls.push(1);
+        return [issue];
+      },
+      runExecutionPhase: async () => [issue],
+      runMergePhase: async () => {},
+      checkResume: async () => null, // no resume
+      onPlanned: async (issues) => { plannedLabels.push(issues); },
+      onMerged: async (issues) => { mergedLabels.push(issues); },
+    });
+
+    expect(planCalls).toHaveLength(1);
+    expect(plannedLabels).toHaveLength(1);
+    expect(plannedLabels[0]).toEqual([issue]);
+    expect(mergedLabels).toHaveLength(1);
+    expect(mergedLabels[0]).toEqual([issue]);
+  });
+
+  it('resume with only planned labels: planner runs fresh (normal flow)', async () => {
+    // When checkResume returns null (only planned/no resume-needed labels),
+    // the normal flow runs — planner is called
+    const plannerCalled: boolean[] = [];
+
+    await daemonLoop({
+      signalContext,
+      heartbeat: vi.fn(),
+      waitForOpenIssues: vi.fn()
+        .mockResolvedValueOnce([{ id: 'issue-1', title: 'Fix A', status: 'open', labels: ['sandcastle:planned'] }])
+        .mockResolvedValueOnce([]),
+      runPlanner: async () => {
+        plannerCalled.push(true);
+        return [{ id: 'issue-1', title: 'Fix A', branch: 'branch-a' }];
+      },
+      runExecutionPhase: async () => [],
+      runMergePhase: async () => {},
+      checkResume: async () => null, // only planned → no resume → normal flow
+    });
+
+    expect(plannerCalled).toHaveLength(1);
+  });
+
+  it('resume with mixed states: executing + executed issues routed correctly', async () => {
+    const executeCalls: PlannerIssue[][] = [];
+    const mergeCalls: PlannerIssue[][] = [];
+
+    const execIssue: PlannerIssue = { id: 'issue-1', title: 'Fix A', branch: 'branch-a' };
+    const doneIssue: PlannerIssue = { id: 'issue-2', title: 'Fix B', branch: 'branch-b' };
+
+    await daemonLoop({
+      signalContext,
+      heartbeat: vi.fn(),
+      waitForOpenIssues: vi.fn().mockResolvedValue([]),
+      runPlanner: vi.fn(),
+      runExecutionPhase: async (issues) => {
+        executeCalls.push(issues);
+        return [execIssue]; // executing issue completed
+      },
+      runMergePhase: async (issues) => { mergeCalls.push(issues); },
+      checkResume: async () => ({
+        executing: [execIssue],
+        reviewing: [],
+        executed: [doneIssue],
+      }),
+      onMerged: async () => {},
+    });
+
+    // executing routed to execute
+    expect(executeCalls).toHaveLength(1);
+    expect(executeCalls[0]).toEqual([execIssue]);
+    // merge gets: executed + newly-completed = [doneIssue, execIssue]
+    expect(mergeCalls).toHaveLength(1);
+    expect(mergeCalls[0]).toHaveLength(2);
+    expect(mergeCalls[0]![0]).toEqual(doneIssue);
+    expect(mergeCalls[0]![1]).toEqual(execIssue);
   });
 });

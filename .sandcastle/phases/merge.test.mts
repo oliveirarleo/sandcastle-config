@@ -136,4 +136,58 @@ describe('runMergePhase', () => {
 
     expect(failingCalls).toHaveLength(2);
   });
+
+  it('skips merger sandbox when branch is already merged', async () => {
+    // Simulate a branch that appears in git branch --merged
+    const branchMergedShell = vi.fn(async (cmd: string) => {
+      if (cmd === 'git branch --merged') {
+        return { stdout: '  main\n  branch-a\n', stderr: '' };
+      }
+      return { stdout: '', stderr: '' };
+    });
+
+    const sandboxCalls: string[] = [];
+
+    await runMergePhase({
+      runSandbox: async (opts) => {
+        sandboxCalls.push(opts.promptArgs?.BRANCHES as string);
+        return { stdout: '', commits: [], iterations: [], branch: 'main' };
+      },
+      completedIssues: [{ branch: 'branch-a', id: 'issue-1', title: 'Fix A' }],
+      sandboxProvider: NOOP_SANDBOX,
+      hooks: NOOP_HOOKS,
+      shell: branchMergedShell,
+    });
+
+    // Merger sandbox is skipped because branch is already merged
+    expect(sandboxCalls).toHaveLength(0);
+    // pnpm install still runs
+    expect(branchMergedShell).toHaveBeenCalledWith('CI=true pnpm install --no-frozen-lockfile');
+  });
+
+  it('still runs merger sandbox when branch is not merged', async () => {
+    const notMergedShell = vi.fn(async (cmd: string) => {
+      if (cmd === 'git branch --merged') {
+        return { stdout: '  main\n  other-branch\n', stderr: '' };
+      }
+      return { stdout: '', stderr: '' };
+    });
+
+    const sandboxCalls: string[] = [];
+
+    await runMergePhase({
+      runSandbox: async (opts) => {
+        sandboxCalls.push(opts.promptArgs?.BRANCHES as string);
+        return { stdout: '', commits: [], iterations: [], branch: 'main' };
+      },
+      completedIssues: [{ branch: 'branch-a', id: 'issue-1', title: 'Fix A' }],
+      sandboxProvider: NOOP_SANDBOX,
+      hooks: NOOP_HOOKS,
+      shell: notMergedShell,
+    });
+
+    // Merger sandbox runs because branch is NOT in merged list
+    expect(sandboxCalls).toHaveLength(1);
+    expect(sandboxCalls[0]).toBe('- branch-a');
+  });
 });

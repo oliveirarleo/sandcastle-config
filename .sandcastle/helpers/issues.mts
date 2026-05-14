@@ -4,6 +4,8 @@ import { setTimeout as delay } from "timers/promises";
 import type { Logger } from "pino";
 import { BeadsIssueSchema, type BeadsIssue } from "../types.mts";
 
+const BeadsEnvelopeSchema = z.object({ data: z.array(BeadsIssueSchema) });
+
 export async function getOpenIssues(
   logger?: Logger,
   query: () => Promise<string> = async () =>
@@ -11,10 +13,29 @@ export async function getOpenIssues(
 ): Promise<BeadsIssue[]> {
   try {
     const stdout = await query();
-    const parsed = JSON.parse(stdout);
-    return z.object({ data: z.array(BeadsIssueSchema) }).parse(parsed).data;
+    return BeadsEnvelopeSchema.parse(JSON.parse(stdout)).data;
   } catch (err) {
     logger?.error({ err }, "Failed to query open issues");
+    return [];
+  }
+}
+
+/**
+ * Query open issues that have a specific label.
+ * Uses `bd ready --json --label <label>` to find ready (open, unblocked)
+ * issues with the given label.
+ */
+export async function getIssuesByLabel(
+  label: string,
+  logger?: Logger,
+  query: () => Promise<string> = async () =>
+    $`BD_JSON_ENVELOPE=1 bd ready --json --label '${label}'`.text(),
+): Promise<BeadsIssue[]> {
+  try {
+    const stdout = await query();
+    return BeadsEnvelopeSchema.parse(JSON.parse(stdout)).data;
+  } catch (err) {
+    logger?.error({ err, label }, "Failed to query issues by label");
     return [];
   }
 }

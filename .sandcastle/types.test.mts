@@ -36,7 +36,7 @@ describe('PlannerOutputSchema', () => {
 
 describe('BeadsIssue type', () => {
   it('allows creating a valid typed issue', () => {
-    const issue: BeadsIssue = { id: 'type-test', title: 'Type Test', status: 'open' };
+    const issue: BeadsIssue = { id: 'type-test', title: 'Type Test', status: 'open', labels: [] };
     expect(issue.id).toBe('type-test');
   });
 });
