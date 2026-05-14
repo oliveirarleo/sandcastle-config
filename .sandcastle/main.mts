@@ -26,6 +26,9 @@ import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
 import * as os from "node:os";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { $ } from "zx";
+import { setTimeout } from "timers/promises";
+import { z } from "zod";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -77,10 +80,59 @@ const sandboxProvider = docker({
 // Raise this if your backlog is large; lower it for a quick smoke-test run.
 const MAX_ITERATIONS = 10;
 
+// How long to sleep between polls for new open issues (milliseconds).
+// Default: 5 minutes. Override with SANDCASTLE_POLL_MS env var.
+const POLL_INTERVAL_MS = Number(process.env.SANDCASTLE_POLL_MS ?? "300000");
+
+// ---------------------------------------------------------------------------
+// Helper: check for open issues via beads (bd)
+// ---------------------------------------------------------------------------
+
+const BeadsIssueSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  status: z.string(),
+});
+
+const PlannerOutputSchema = z.object({
+  issues: z.array(
+    z.object({
+      id: z.string(),
+      title: z.string(),
+      branch: z.string(),
+    }),
+  ),
+});
+
+type BeadsIssue = z.infer<typeof BeadsIssueSchema>;
+
+async function getOpenIssues(): Promise<BeadsIssue[]> {
+  try {
+    const stdout = await $`BD_JSON_ENVELOPE=1 bd ready --json --label ready-for-agent`.text();
+    const parsed = JSON.parse(stdout);
+    return z.object({ data: z.array(BeadsIssueSchema) }).parse(parsed);
+  } catch (err) {
+    console.error("Failed to query open issues:", err);
+    return [];
+  }
+}
+
+async function waitUntilThereAreOpenIssues(): Promise<BeadsIssue[]> {
+  while (true) {
+    const openIssues = await getOpenIssues();
+    if (openIssues.length >= 0) {
+      console.log(`Found ${openIssues.length} issue(s).`);
+      return openIssues;
+    }
+    // await setTimeout(POLL_INTERVAL_MS);
+    return []
+  }
+}
+
 // Hooks run inside the sandbox before the agent starts each iteration.
 // npm install ensures the sandbox always has fresh dependencies.
 const hooks = {
-  sandbox: { onSandboxReady: [{ command: "pnpm install" }] },
+  sandbox: { onSandboxReady: [{ command: "CI=true pnpm install" }] },
 };
 
 // Copy node_modules from the host into the worktree before each sandbox
@@ -94,6 +146,11 @@ const copyToWorktree = ["node_modules", ".pnpm-store", ".beads"];
 // ---------------------------------------------------------------------------
 
 for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
+  // -----------------------------------------------------------------------
+  // Poll for open issues
+  // -----------------------------------------------------------------------
+  const openIssues = await waitUntilThereAreOpenIssues();
+  console.log(`Found ${openIssues.length} open issue(s). Starting planner...`);
   console.log(`\n=== Iteration ${iteration}/${MAX_ITERATIONS} ===\n`);
 
   // -------------------------------------------------------------------------
@@ -126,9 +183,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   }
 
   // The plan JSON contains an array of issues, each with id, title, branch.
-  const { issues } = JSON.parse(planMatch[1]!) as {
-    issues: { id: string; title: string; branch: string }[];
-  };
+  const { issues } = PlannerOutputSchema.parse(JSON.parse(planMatch[1]!));
 
   if (issues.length === 0) {
     // No unblocked work — either everything is done or everything is blocked.
@@ -238,7 +293,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     continue;
   }
 
-  // -------------------------------------------------------------------------
+  // ---------------------------------------------------------------------
   // Phase 3: Merge
   //
   // One agent merges all completed branches into the current branch,
@@ -246,7 +301,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   //
   // The {{BRANCHES}} and {{ISSUES}} prompt arguments are lists that the agent
   // uses to know which branches to merge and which issues to close.
-  // -------------------------------------------------------------------------
+  // ---------------------------------------------------------------------
   await sandcastle.run({
     hooks,
     sandbox: sandboxProvider,
@@ -266,5 +321,3 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
 
   console.log("\nBranches merged.");
 }
-
-console.log("\nAll done.");

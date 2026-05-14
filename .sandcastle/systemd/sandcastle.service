@@ -1,0 +1,29 @@
+[Unit]
+Description=Sandcastle AI agent runner
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=mainframe
+Group=users
+WorkingDirectory=/home/mainframe/cc/test/sandcastle
+
+# Ensure bd, pnpm, node, and tsx are on PATH.
+# Adjust these paths to match your system (run `which pnpm` and `which bd`).
+Environment="PATH=/run/current-system/sw/bin:/nix/store/q845mzglbbmqy7i5mlkhy4yvbw7l1j7g-pnpm-10.32.1/bin:/nix/store/v2210ar51jddnrcx46m53ivv9palc26m-nodejs-24.14.0/bin:/home/mainframe/.local/bin:/home/mainframe/.npm-packages/bin:/usr/bin:/bin"
+
+# Required for pi agent auth and sandbox mounts
+Environment="HOME=/home/mainframe"
+
+# How long to sleep between polls (default 5 min). Override here or in main.mts.
+# Environment="SANDCASTLE_POLL_MS=300000"
+
+ExecStart=pnpm run sc
+
+# Restart only on failure — the inner loop handles normal sleep/wake.
+Restart=on-failure
+RestartSec=10
+
+StandardOutput=journal
+StandardError=journal

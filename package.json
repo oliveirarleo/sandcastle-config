@@ -11,11 +11,16 @@
   },
   "keywords": [],
   "author": "",
+  "packageManager": "pnpm@10.32.1",
   "license": "ISC",
   "devDependencies": {
     "@ai-hero/sandcastle": "^0.5.10",
     "@types/node": "^25.7.0",
     "tsx": "^4.21.0",
     "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "zod": "^4.4.3",
+    "zx": "^8.8.5"
   }
 }

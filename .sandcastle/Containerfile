@@ -20,7 +20,7 @@ RUN apt-get update && apt-get install -y \
 RUN curl -fsSL https://raw.githubusercontent.com/steveyegge/beads/main/scripts/install.sh | bash
 
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@10.32.1 --activate
 
 # Build-args for UID/GID alignment: sandcastle docker build-image
 # defaults these to the host user's UID/GID so image-built files
@@ -36,7 +36,7 @@ RUN groupmod -o -g $AGENT_GID node && usermod -o -u $AGENT_UID -g $AGENT_GID -d 
 USER ${AGENT_UID}:${AGENT_GID}
 ENV HOME=/home/agent
 ENV PNPM_HOME="/home/agent/.local/share/pnpm"
-ENV PATH="${PNPM_HOME}/bin:${PATH}"
+ENV PATH="${PNPM_HOME}/bin:${PNPM_HOME}:${PATH}"
 RUN pnpm install -g @earendil-works/pi-coding-agent pi-mcp-adapter pi-subagents
 
 WORKDIR /home/agent
