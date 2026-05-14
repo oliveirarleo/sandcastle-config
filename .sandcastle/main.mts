@@ -19,12 +19,12 @@
 import * as sandcastle from "@ai-hero/sandcastle";
 import pino from "pino";
 import {
-  sandboxProvider,
-  MAX_ITERATIONS,
-  MAX_PARALLEL_TASKS,
-  POLL_INTERVAL_MS,
-  hooks,
-  copyToWorktree,
+	copyToWorktree,
+	hooks,
+	MAX_ITERATIONS,
+	MAX_PARALLEL_TASKS,
+	POLL_INTERVAL_MS,
+	sandboxProvider,
 } from "./config.mts";
 
 import { waitForOpenIssues } from "./helpers/issues.mts";
@@ -37,11 +37,11 @@ import { runPlanner } from "./phases/plan.mts";
 // ---------------------------------------------------------------------------
 
 const logger = pino({
-  level: process.env.LOG_LEVEL ?? "info",
-  transport:
-    process.env.NODE_ENV !== "production"
-      ? { target: "pino-pretty", options: { colorize: true } }
-      : undefined,
+	level: process.env.LOG_LEVEL ?? "info",
+	transport:
+		process.env.NODE_ENV !== "production"
+			? { target: "pino-pretty", options: { colorize: true } }
+			: undefined,
 });
 
 // ---------------------------------------------------------------------------
@@ -49,75 +49,75 @@ const logger = pino({
 // ---------------------------------------------------------------------------
 
 for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
-  // -----------------------------------------------------------------------
-  // Poll for open issues
-  // -----------------------------------------------------------------------
-  logger.debug("About to call waitForOpenIssues...");
-  const openIssues = await waitForOpenIssues(POLL_INTERVAL_MS, logger);
-  logger.debug("waitForOpenIssues returned.");
-  logger.info(
-    { count: openIssues.length, iteration, maxIterations: MAX_ITERATIONS },
-    "Starting planner",
-  );
+	// -----------------------------------------------------------------------
+	// Poll for open issues
+	// -----------------------------------------------------------------------
+	logger.debug("About to call waitForOpenIssues...");
+	const openIssues = await waitForOpenIssues(POLL_INTERVAL_MS, logger);
+	logger.debug("waitForOpenIssues returned.");
+	logger.info(
+		{ count: openIssues.length, iteration, maxIterations: MAX_ITERATIONS },
+		"Starting planner",
+	);
 
-  // -------------------------------------------------------------------------
-  // Phase 1: Plan
-  // -------------------------------------------------------------------------
-  const issues = await runPlanner(
-    sandcastle.run,
-    sandboxProvider,
-    hooks,
-    logger,
-  );
+	// -------------------------------------------------------------------------
+	// Phase 1: Plan
+	// -------------------------------------------------------------------------
+	const issues = await runPlanner(
+		sandcastle.run,
+		sandboxProvider,
+		hooks,
+		logger,
+	);
 
-  if (issues.length === 0) {
-    // No unblocked work — either everything is done or everything is blocked.
-    logger.info("No unblocked issues to work on. Exiting.");
-    break;
-  }
+	if (issues.length === 0) {
+		// No unblocked work — either everything is done or everything is blocked.
+		logger.info("No unblocked issues to work on. Exiting.");
+		break;
+	}
 
-  // -------------------------------------------------------------------------
-  // Phase 2: Execute + Review
-  // -------------------------------------------------------------------------
+	// -------------------------------------------------------------------------
+	// Phase 2: Execute + Review
+	// -------------------------------------------------------------------------
 
-  const completedIssues = await runExecutionPhase(
-    issues,
-    sandcastle.createSandbox,
-    sandboxProvider,
-    hooks,
-    copyToWorktree,
-    MAX_PARALLEL_TASKS,
-    logger,
-  );
+	const completedIssues = await runExecutionPhase(
+		issues,
+		sandcastle.createSandbox,
+		sandboxProvider,
+		hooks,
+		copyToWorktree,
+		MAX_PARALLEL_TASKS,
+		logger,
+	);
 
-  const completedBranches = completedIssues.map((i) => i.branch);
+	const completedBranches = completedIssues.map((i) => i.branch);
 
-  logger.info({ count: completedBranches.length }, "Execution complete");
-  for (const branch of completedBranches) {
-    logger.info(`  ${branch}`);
-  }
+	logger.info({ count: completedBranches.length }, "Execution complete");
+	for (const branch of completedBranches) {
+		logger.info(`  ${branch}`);
+	}
 
-  if (completedBranches.length === 0) {
-    // All agents ran but none made commits — nothing to merge this cycle.
-    logger.info("No commits produced. Nothing to merge.");
-    continue;
-  }
+	if (completedBranches.length === 0) {
+		// All agents ran but none made commits — nothing to merge this cycle.
+		logger.info("No commits produced. Nothing to merge.");
+		continue;
+	}
 
-  // ---------------------------------------------------------------------
-  // Phase 3: Merge
-  //
-  // Merge each completed branch into the current branch one at a time.
-  // This isolates failures: if one merge conflicts or fails tests, the
-  // process stops there instead of leaving the repo in an ambiguous
-  // partially-merged state.
-  // ---------------------------------------------------------------------
-  await runMergePhase(
-    sandcastle.run,
-    completedIssues,
-    sandboxProvider,
-    hooks,
-    logger,
-  );
+	// ---------------------------------------------------------------------
+	// Phase 3: Merge
+	//
+	// Merge each completed branch into the current branch one at a time.
+	// This isolates failures: if one merge conflicts or fails tests, the
+	// process stops there instead of leaving the repo in an ambiguous
+	// partially-merged state.
+	// ---------------------------------------------------------------------
+	await runMergePhase(
+		sandcastle.run,
+		completedIssues,
+		sandboxProvider,
+		hooks,
+		logger,
+	);
 
-  logger.info("Branches merged.");
+	logger.info("Branches merged.");
 }
