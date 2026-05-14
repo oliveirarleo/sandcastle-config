@@ -36,4 +36,63 @@ describe('runMergePhase', () => {
     expect(calls[0]!.branchStrategy).toEqual({ type: 'merge-to-head' });
     expect(calls[1]!.branchStrategy).toEqual({ type: 'merge-to-head' });
   });
+
+  it('isolates per-branch errors: one failing merge does not block remaining branches', async () => {
+    const isolatedCalls: string[] = [];
+
+    async function mockRunWithFailure(opts: RunOptions): Promise<RunResult> {
+      const branch = opts.promptArgs?.BRANCHES as string;
+      isolatedCalls.push(branch);
+      if (branch === '- branch-b') {
+        throw new Error('merge conflict on branch-b');
+      }
+      return { stdout: '', commits: [], iterations: [], branch: 'main' };
+    }
+
+    const threeIssues: PlannerIssue[] = [
+      { branch: 'branch-a', id: 'issue-1', title: 'Fix A' },
+      { branch: 'branch-b', id: 'issue-2', title: 'Fix B' },
+      { branch: 'branch-c', id: 'issue-3', title: 'Fix C' },
+    ];
+
+    await runMergePhase(
+      mockRunWithFailure,
+      threeIssues,
+      NOOP_SANDBOX,
+      NOOP_HOOKS,
+      undefined,
+    );
+
+    expect(isolatedCalls).toHaveLength(3);
+    expect(isolatedCalls[0]).toBe('- branch-a');
+    expect(isolatedCalls[1]).toBe('- branch-b');
+    expect(isolatedCalls[2]).toBe('- branch-c');
+  });
+
+  it('does not throw when all merges fail', async () => {
+    const failingCalls: string[] = [];
+
+    async function mockAlwaysFail(opts: RunOptions): Promise<RunResult> {
+      failingCalls.push(opts.promptArgs?.BRANCHES as string);
+      throw new Error('merge failed');
+    }
+
+    const issues: PlannerIssue[] = [
+      { branch: 'branch-a', id: 'issue-1', title: 'Fix A' },
+      { branch: 'branch-b', id: 'issue-2', title: 'Fix B' },
+    ];
+
+    // Should not throw
+    await expect(
+      runMergePhase(
+        mockAlwaysFail,
+        issues,
+        NOOP_SANDBOX,
+        NOOP_HOOKS,
+        undefined,
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(failingCalls).toHaveLength(2);
+  });
 });

@@ -42,6 +42,10 @@ export function extractPlanJson(stdout: string): string {
   return jsonMatch[0];
 }
 
+/**
+ * Run the planning phase: invoke the planner agent to analyze open issues
+ * and return the list of unblocked issues to work on.
+ */
 export async function runPlanner(
   runSandbox: RunSandbox,
   sandboxProvider: SandboxProvider,
