@@ -19,6 +19,28 @@ export async function getOpenIssues(
   }
 }
 
+/**
+ * Query the beads database for issues that have a specific label.
+ *
+ * Uses `bd list --json --label <label>` under the hood. The query function
+ * is injectable for testing.
+ */
+export async function getIssuesByLabel(
+  label: string,
+  logger?: Logger,
+  query: (label: string) => Promise<string> = async (lbl) =>
+    $`BD_JSON_ENVELOPE=1 bd list --json --label ${lbl}`.text(),
+): Promise<BeadsIssue[]> {
+  try {
+    const stdout = await query(label);
+    const parsed = JSON.parse(stdout);
+    return z.object({ data: z.array(BeadsIssueSchema) }).parse(parsed).data;
+  } catch (err) {
+    logger?.error({ err, label }, 'Failed to query issues by label');
+    return [];
+  }
+}
+
 export async function waitForOpenIssues(
   pollIntervalMs: number,
   logger?: Logger,
