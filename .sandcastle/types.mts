@@ -1,19 +1,19 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 export const BeadsIssueSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  status: z.string(),
+	id: z.string(),
+	title: z.string(),
+	status: z.string(),
 });
 
 export const PlannerIssueSchema = z.object({
-  id: z.string(),
-  title: z.string(),
-  branch: z.string(),
+	id: z.string(),
+	title: z.string(),
+	branch: z.string(),
 });
 
 export const PlannerOutputSchema = z.object({
-  issues: z.array(PlannerIssueSchema),
+	issues: z.array(PlannerIssueSchema),
 });
 
 export type BeadsIssue = z.infer<typeof BeadsIssueSchema>;
