@@ -2,8 +2,9 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    // NodeNext module resolution is inherited from tsconfig.json;
-    // vitest picks it up automatically.
+    // The .mts extension in the second glob is intentional: under the
+    // NodeNext module resolution inherited from tsconfig, .mts files are
+    // treated as ESM, matching the project's module format.
     include: ['src/**/*.test.ts', '.sandcastle/**/*.test.mts'],
   },
 });

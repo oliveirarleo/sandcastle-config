@@ -19,19 +19,36 @@ export type RunSandbox = (options: RunOptions) => Promise<RunResult>;
  */
 async function commitBeadsExportIfDirty(logger?: Logger): Promise<void> {
   try {
-    // Check if .beads/issues.jsonl has staged or unstaged changes
     const { stdout } = await execAsync("git status --porcelain .beads/issues.jsonl");
     if (!stdout.trim()) {
-      return; // clean, nothing to do
+      return;
     }
     logger?.info("Beads export is dirty, committing before merge");
     await execAsync("git add .beads/issues.jsonl");
     await execAsync('git commit -m "chore: update beads export"');
     logger?.info("Committed beads export");
   } catch (err) {
-    // Non-fatal: if the working tree is still dirty, the merge will fail
-    // with a clear error rather than silently swallowing the problem.
     logger?.warn({ err }, "Failed to commit beads export — merge may fail if working tree is dirty");
+  }
+}
+
+/**
+ * Run `pnpm install` after a merge to pick up dependency changes from
+ * the merged branch. Failure is non-fatal — a warning is logged but the
+ * merge loop continues.
+ */
+async function installDependencies(
+  logger: Logger | undefined,
+  branch: string,
+  issueId: string,
+): Promise<void> {
+  try {
+    await execAsync("CI=true pnpm install --no-frozen-lockfile");
+  } catch (err) {
+    logger?.warn(
+      { err, branch, issueId },
+      "pnpm install failed after merge — dependencies may be out of date",
+    );
   }
 }
 
@@ -45,8 +62,6 @@ export async function runMergePhase(
   for (const issue of completedIssues) {
     logger?.info({ branch: issue.branch, issueId: issue.id }, "Merging branch");
 
-    // Commit any outstanding beads export before merge to avoid dirty-tree
-    // merge failures inside the sandcastle SDK's merge-to-head step.
     await commitBeadsExportIfDirty(logger);
 
     try {
@@ -64,17 +79,8 @@ export async function runMergePhase(
         },
       });
 
-      // Install dependencies after merge — merged branches may have
-      // added, removed, or updated packages.
       logger?.info({ branch: issue.branch, issueId: issue.id }, "Running pnpm install after merge");
-      try {
-        await execAsync("CI=true pnpm install --no-frozen-lockfile");
-      } catch (installErr) {
-        logger?.warn(
-          { err: installErr, branch: issue.branch, issueId: issue.id },
-          "pnpm install failed after merge — dependencies may be out of date",
-        );
-      }
+      await installDependencies(logger, issue.branch, issue.id);
     } catch (err) {
       logger?.error(
         { err, branch: issue.branch, issueId: issue.id },
