@@ -33,14 +33,3 @@ index 9ebc1e3d68f9502b0bf070c9bde7d9518e579dc6..b3fd77c9b63f0b6e656ed4d1cb8e714c
                  yield* display.status(label("Agent stopped"), "info");
                  // Capture session while sandbox is still alive
                  let sessionFilePath;
-diff --git a/dist/TextDeltaBuffer.js b/dist/TextDeltaBuffer.js
-index 99c91059334e7af36bf888d2c14378432cc41878..2333913afa0215563a965f4d8ff8dc21107aef7f 100644
---- a/dist/TextDeltaBuffer.js
-+++ b/dist/TextDeltaBuffer.js
-@@ -1,5 +1,5 @@
- const LENGTH_THRESHOLD = 80;
--const DEBOUNCE_MS = 50;
-+const DEBOUNCE_MS = 500;
- /**
-  * Sentence-boundary pattern: period, exclamation, or question mark followed by a space.
-  */
