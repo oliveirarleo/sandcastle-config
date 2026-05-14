@@ -31,6 +31,7 @@ import {
 } from "./config.mts";
 import { BeadsIssueSchema, PlannerOutputSchema, type BeadsIssue } from "./types.mts";
 import { runWithConcurrencyLimit } from "./helpers/concurrency.mts";
+import { runMergePhase } from "./phases/merge.mts";
 
 // ---------------------------------------------------------------------------
 // Logger
@@ -237,28 +238,17 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // ---------------------------------------------------------------------
   // Phase 3: Merge
   //
-  // One agent merges all completed branches into the current branch,
-  // resolving any conflicts and running tests to confirm everything works.
-  //
-  // The {{BRANCHES}} and {{ISSUES}} prompt arguments are lists that the agent
-  // uses to know which branches to merge and which issues to close.
+  // Merge each completed branch into the current branch one at a time.
+  // This isolates failures: if one merge conflicts or fails tests, the
+  // process stops there instead of leaving the repo in an ambiguous
+  // partially-merged state.
   // ---------------------------------------------------------------------
-  await sandcastle.run({
+  await runMergePhase(
+    sandcastle.run,
+    completedIssues,
+    sandboxProvider,
     hooks,
-    sandbox: sandboxProvider,
-    name: "merger",
-    maxIterations: 1,
-    agent: sandcastle.pi("opencode-go/kimi-k2.6"),
-    promptFile: "./.sandcastle/merge-prompt.md",
-    promptArgs: {
-      // A markdown list of branch names, one per line.
-      BRANCHES: completedBranches.map((b) => `- ${b}`).join("\n"),
-      // A markdown list of issue IDs and titles, one per line.
-      ISSUES: completedIssues
-        .map((i) => `- ${i.id}: ${i.title}`)
-        .join("\n"),
-    },
-  });
+  );
 
   logger.info("Branches merged.");
 }
