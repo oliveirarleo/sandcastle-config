@@ -17,71 +17,30 @@
 // issues are picked up after each round of merges.
 
 import * as sandcastle from "@ai-hero/sandcastle";
-import { docker } from "@ai-hero/sandcastle/sandboxes/docker";
-import * as os from "node:os";
-import * as fs from "node:fs";
-import * as path from "node:path";
 import { $ } from "zx";
 import { setTimeout } from "timers/promises";
 import { z } from "zod";
+import pino from "pino";
+import {
+  sandboxProvider,
+  MAX_ITERATIONS,
+  MAX_PARALLEL_TASKS,
+  POLL_INTERVAL_MS,
+  hooks,
+  copyToWorktree,
+} from "./config.mts";
 
 // ---------------------------------------------------------------------------
-// Configuration
+// Logger
 // ---------------------------------------------------------------------------
 
-function resolveHostPath(input: string): string {
-  if (input.startsWith("~/")) {
-    return path.join(os.homedir(), input.slice(2));
-  }
-  return input;
-}
-
-const sandboxMounts =
-  process.env.SANDCASTLE_NO_PI_MOUNT === "1"
-    ? []
-    : [{ hostPath: "~/.pi/agent" as const, sandboxPath: "~/.pi/agent" as const, readonly: false as const }];
-
-if (
-  sandboxMounts.length > 0 &&
-  !fs.existsSync(resolveHostPath("~/.pi/agent"))
-) {
-  throw new Error(
-    "The ~/.pi/agent directory is missing. Sandcastle mounts this directory into each sandbox so agents can access skills, settings, and sessions. Either create the directory or set SANDCASTLE_NO_PI_MOUNT=1 to skip the mount.",
-  );
-}
-
-// In rootless Docker, the container UID 1000 maps to a different host UID,
-// so bind-mounted ~/.pi/agent files are unreadable. Pass the opencode-go
-// API key via env so pi can authenticate without reading auth.json.
-function readOpencodeApiKey(): string | undefined {
-  try {
-    const authPath = resolveHostPath("~/.pi/agent/auth.json");
-    const auth = JSON.parse(fs.readFileSync(authPath, "utf-8"));
-    return auth["opencode-go"]?.key;
-  } catch {
-    return undefined;
-  }
-}
-
-const opencodeApiKey = readOpencodeApiKey();
-const sandboxProvider = docker({
-  mounts: sandboxMounts,
-  env: opencodeApiKey
-    ? { OPENCODE_API_KEY: opencodeApiKey }
-    : undefined,
+const logger = pino({
+  level: process.env.LOG_LEVEL ?? "info",
+  transport:
+    process.env.NODE_ENV !== "production"
+      ? { target: "pino-pretty", options: { colorize: true } }
+      : undefined,
 });
-
-// Maximum number of plan→execute→merge cycles before stopping.
-// Raise this if your backlog is large; lower it for a quick smoke-test run.
-const MAX_ITERATIONS = 10;
-
-// Maximum number of bead tasks to run in parallel during Phase 2.
-// Default: 3. Override with SANDCASTLE_MAX_PARALLEL env var.
-const MAX_PARALLEL_TASKS = Number(process.env.SANDCASTLE_MAX_PARALLEL ?? "3");
-
-// How long to sleep between polls for new open issues (milliseconds).
-// Default: 5 minutes. Override with SANDCASTLE_POLL_MS env var.
-const POLL_INTERVAL_MS = Number(process.env.SANDCASTLE_POLL_MS ?? "300000");
 
 // ---------------------------------------------------------------------------
 // Helper: run tasks with a concurrency limit
@@ -150,7 +109,7 @@ async function getOpenIssues(): Promise<BeadsIssue[]> {
     const parsed = JSON.parse(stdout);
     return z.object({ data: z.array(BeadsIssueSchema) }).parse(parsed).data;
   } catch (err) {
-    console.error("Failed to query open issues:", err);
+    logger.error({ err }, "Failed to query open issues");
     return [];
   }
 }
@@ -158,26 +117,14 @@ async function getOpenIssues(): Promise<BeadsIssue[]> {
 async function waitUntilThereAreOpenIssues(): Promise<BeadsIssue[]> {
   while (true) {
     const openIssues = await getOpenIssues();
-    console.log("[DEBUG] ", openIssues)
+    logger.debug({ openIssues }, "Polled for open issues");
     if (openIssues.length > 0) {
-      console.log(`Found ${openIssues.length} issue(s).`);
+      logger.info({ count: openIssues.length }, "Found open issues");
       return openIssues;
     }
     await setTimeout(POLL_INTERVAL_MS);
   }
 }
-
-// Hooks run inside the sandbox before the agent starts each iteration.
-// npm install ensures the sandbox always has fresh dependencies.
-const hooks = {
-  sandbox: { onSandboxReady: [{ command: "CI=true pnpm install" }] },
-};
-
-// Copy node_modules from the host into the worktree before each sandbox
-// starts. Avoids a full npm install from scratch; the hook above handles
-// platform-specific binaries and any packages added since the last copy.
-// .beads is included so the planner can query issues via `bd` inside the sandbox.
-const copyToWorktree = ["node_modules", ".pnpm-store", ".beads"];
 
 // ---------------------------------------------------------------------------
 // Main loop
@@ -187,11 +134,13 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // -----------------------------------------------------------------------
   // Poll for open issues
   // -----------------------------------------------------------------------
-  console.log("[DEBUG] About to call waitUntilThereAreOpenIssues...");
+  logger.debug("About to call waitUntilThereAreOpenIssues...");
   const openIssues = await waitUntilThereAreOpenIssues();
-  console.log("[DEBUG] waitUntilThereAreOpenIssues returned.")
-  console.log(`Found ${openIssues.length} open issue(s). Starting planner...`);
-  console.log(`\n=== Iteration ${iteration}/${MAX_ITERATIONS} ===\n`);
+  logger.debug("waitUntilThereAreOpenIssues returned.");
+  logger.info(
+    { count: openIssues.length, iteration, maxIterations: MAX_ITERATIONS },
+    "Starting planner",
+  );
 
   // -------------------------------------------------------------------------
   // Phase 1: Plan
@@ -202,7 +151,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   //
   // It outputs a <plan> JSON block — we parse that to drive Phase 2.
   // -------------------------------------------------------------------------
-  console.log("[DEBUG] About to start planner sandcastle.run...");
+  logger.debug("About to start planner sandcastle.run...");
   const plan = await sandcastle.run({
     hooks,
     sandbox: sandboxProvider,
@@ -215,7 +164,7 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     promptFile: "./.sandcastle/plan-prompt.md",
   });
 
-  console.log("[DEBUG] Planner sandcastle.run returned.");
+  logger.debug("Planner sandcastle.run returned.");
   // Extract the <plan>…</plan> block from the agent's stdout.
   const planMatch = plan.stdout.match(/<plan>([\s\S]*?)<\/plan>/);
   if (!planMatch) {
@@ -229,15 +178,16 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
 
   if (issues.length === 0) {
     // No unblocked work — either everything is done or everything is blocked.
-    console.log("No unblocked issues to work on. Exiting.");
+    logger.info("No unblocked issues to work on. Exiting.");
     break;
   }
 
-  console.log(
-    `Planning complete. ${issues.length} issue(s) to work in parallel:`,
+  logger.info(
+    { count: issues.length },
+    "Planning complete",
   );
   for (const issue of issues) {
-    console.log(`  ${issue.id}: ${issue.title} → ${issue.branch}`);
+    logger.info(`  ${issue.id}: ${issue.title} → ${issue.branch}`);
   }
 
   // -------------------------------------------------------------------------
@@ -305,8 +255,9 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
   // Log any agents that threw (network error, sandbox crash, etc.).
   for (const [i, outcome] of settled.entries()) {
     if (outcome.status === "rejected") {
-      console.error(
-        `  ✗ ${issues[i]!.id} (${issues[i]!.branch}) failed: ${outcome.reason}`,
+      logger.error(
+        { err: outcome.reason },
+        `✗ ${issues[i]!.id} (${issues[i]!.branch}) failed`,
       );
     }
   }
@@ -324,16 +275,17 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
 
   const completedBranches = completedIssues.map((i) => i.branch);
 
-  console.log(
-    `\nExecution complete. ${completedBranches.length} branch(es) with commits:`,
+  logger.info(
+    { count: completedBranches.length },
+    "Execution complete",
   );
   for (const branch of completedBranches) {
-    console.log(`  ${branch}`);
+    logger.info(`  ${branch}`);
   }
 
   if (completedBranches.length === 0) {
     // All agents ran but none made commits — nothing to merge this cycle.
-    console.log("No commits produced. Nothing to merge.");
+    logger.info("No commits produced. Nothing to merge.");
     continue;
   }
 
@@ -363,5 +315,5 @@ for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
     },
   });
 
-  console.log("\nBranches merged.");
+  logger.info("Branches merged.");
 }
