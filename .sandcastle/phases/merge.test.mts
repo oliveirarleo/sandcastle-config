@@ -1,10 +1,15 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import type { RunOptions, RunResult, SandboxHooks, SandboxProvider } from '@ai-hero/sandcastle';
-import { runMergePhase } from './merge.mts';
+import { runMergePhase, type ShellExec } from './merge.mts';
 import type { PlannerIssue } from '../types.mts';
 
 const NOOP_SANDBOX = {} as unknown as SandboxProvider;
 const NOOP_HOOKS = {} as unknown as SandboxHooks;
+
+/** Shell mock that simulates a clean git working tree. */
+function mockShell(stdout = ''): ShellExec {
+  return vi.fn().mockResolvedValue({ stdout, stderr: '' });
+}
 
 describe('runMergePhase', () => {
   it('calls sandcastle.run once per issue with correct arguments', async () => {
@@ -20,13 +25,13 @@ describe('runMergePhase', () => {
       { branch: 'branch-b', id: 'issue-2', title: 'Fix B' },
     ];
 
-    await runMergePhase(
-      mockRunSandbox,
-      issues,
-      NOOP_SANDBOX,
-      NOOP_HOOKS,
-      undefined,
-    );
+    await runMergePhase({
+      runSandbox: mockRunSandbox,
+      completedIssues: issues,
+      sandboxProvider: NOOP_SANDBOX,
+      hooks: NOOP_HOOKS,
+      shell: mockShell(),
+    });
 
     expect(calls).toHaveLength(2);
     expect(calls[0]!.promptArgs!.BRANCHES).toBe('- branch-a');
@@ -35,6 +40,43 @@ describe('runMergePhase', () => {
     expect(calls[1]!.promptArgs!.ISSUES).toBe('- issue-2: Fix B');
     expect(calls[0]!.branchStrategy).toEqual({ type: 'merge-to-head' });
     expect(calls[1]!.branchStrategy).toEqual({ type: 'merge-to-head' });
+  });
+
+  it('commits beads export when dirty before each merge', async () => {
+    const shellCalls: string[] = [];
+    const dirtyShell = vi.fn(async (cmd: string) => {
+      shellCalls.push(cmd);
+      return { stdout: cmd.startsWith('git status') ? ' M .beads/issues.jsonl' : '', stderr: '' };
+    });
+
+    await runMergePhase({
+      runSandbox: async () => ({ stdout: '', commits: [], iterations: [], branch: 'main' }),
+      completedIssues: [{ branch: 'branch-a', id: 'issue-1', title: 'Fix A' }],
+      sandboxProvider: NOOP_SANDBOX,
+      hooks: NOOP_HOOKS,
+      shell: dirtyShell,
+    });
+
+    expect(shellCalls).toContain('git status --porcelain .beads/issues.jsonl');
+    expect(shellCalls).toContain('git add .beads/issues.jsonl');
+  });
+
+  it('runs pnpm install after a successful merge', async () => {
+    const shellCalls: string[] = [];
+    const shell = vi.fn(async (cmd: string) => {
+      shellCalls.push(cmd);
+      return { stdout: '', stderr: '' };
+    });
+
+    await runMergePhase({
+      runSandbox: async () => ({ stdout: '', commits: [], iterations: [], branch: 'main' }),
+      completedIssues: [{ branch: 'branch-a', id: 'issue-1', title: 'Fix A' }],
+      sandboxProvider: NOOP_SANDBOX,
+      hooks: NOOP_HOOKS,
+      shell,
+    });
+
+    expect(shellCalls).toContain('CI=true pnpm install --no-frozen-lockfile');
   });
 
   it('isolates per-branch errors: one failing merge does not block remaining branches', async () => {
@@ -55,13 +97,13 @@ describe('runMergePhase', () => {
       { branch: 'branch-c', id: 'issue-3', title: 'Fix C' },
     ];
 
-    await runMergePhase(
-      mockRunWithFailure,
-      threeIssues,
-      NOOP_SANDBOX,
-      NOOP_HOOKS,
-      undefined,
-    );
+    await runMergePhase({
+      runSandbox: mockRunWithFailure,
+      completedIssues: threeIssues,
+      sandboxProvider: NOOP_SANDBOX,
+      hooks: NOOP_HOOKS,
+      shell: mockShell(),
+    });
 
     expect(isolatedCalls).toHaveLength(3);
     expect(isolatedCalls[0]).toBe('- branch-a');
@@ -82,15 +124,14 @@ describe('runMergePhase', () => {
       { branch: 'branch-b', id: 'issue-2', title: 'Fix B' },
     ];
 
-    // Should not throw
     await expect(
-      runMergePhase(
-        mockAlwaysFail,
-        issues,
-        NOOP_SANDBOX,
-        NOOP_HOOKS,
-        undefined,
-      ),
+      runMergePhase({
+        runSandbox: mockAlwaysFail,
+        completedIssues: issues,
+        sandboxProvider: NOOP_SANDBOX,
+        hooks: NOOP_HOOKS,
+        shell: mockShell(),
+      }),
     ).resolves.toBeUndefined();
 
     expect(failingCalls).toHaveLength(2);

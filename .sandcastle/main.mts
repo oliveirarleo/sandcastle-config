@@ -1,150 +1,106 @@
-// Parallel Planner with Review — four-phase orchestration loop
-//
-// This template drives a multi-phase workflow:
-//   Phase 1 (Plan):             An opus agent analyzes open issues, builds a
-//                               dependency graph, and outputs a <plan> JSON
-//                               listing unblocked issues with branch names.
-//   Phase 2 (Execute + Review): For each issue, a sandbox is created via
-//                               createSandbox(). The implementer runs first
-//                               (100 iterations). If it produces commits, a
-//                               reviewer runs in the same sandbox on the same
-//                               branch (1 iteration). All issue pipelines run
-//                               concurrently via Promise.allSettled().
-//   Phase 3 (Merge):            A single agent merges all completed branches
-//                               into the current branch.
-//
-// The outer loop repeats up to MAX_ITERATIONS times so that newly unblocked
-// issues are picked up after each round of merges.
+// Sandcastle daemon — four-phase poll loop (Plan → Execute → Merge).
+// Runs indefinitely; SIGTERM triggers graceful shutdown after current iteration.
 
 import * as sandcastle from "@ai-hero/sandcastle";
 import pino from "pino";
-import {
-  sandboxProvider,
-  MAX_ITERATIONS,
-  MAX_PARALLEL_TASKS,
-  POLL_INTERVAL_MS,
-  hooks,
-  copyToWorktree,
-} from "./config.mts";
-
+import { sandboxProvider, MAX_PARALLEL_TASKS, POLL_INTERVAL_MS, hooks, copyToWorktree } from "./config.mts";
 import { waitForOpenIssues } from "./helpers/issues.mts";
 import { runExecutionPhase } from "./phases/execute.mts";
 import { runMergePhase } from "./phases/merge.mts";
 import { runPlanner } from "./phases/plan.mts";
 import type { PlannerIssue } from "./types.mts";
 
-// ---------------------------------------------------------------------------
-// Logger
-// ---------------------------------------------------------------------------
-
 const logger = pino({
   level: process.env.LOG_LEVEL ?? "info",
-  transport:
-    process.env.NODE_ENV !== "production"
-      ? { target: "pino-pretty", options: { colorize: true } }
-      : undefined,
+  transport: process.env.NODE_ENV !== "production"
+    ? { target: "pino-pretty", options: { colorize: true } }
+    : undefined,
 });
 
-// ---------------------------------------------------------------------------
-// Process-level safety net
-// ---------------------------------------------------------------------------
-// Catches stray unhandled rejections (e.g. Effect defects from orDie /
-// uncaught Effect.runPromise) that would otherwise crash the process.
-process.on("unhandledRejection", (reason) => {
-  logger.error({ err: reason }, "Unhandled promise rejection caught by safety net");
-});
+const GRACEFUL_SHUTDOWN_MS = 10 * 60 * 1000;
 
-// ---------------------------------------------------------------------------
-// Main loop
-// ---------------------------------------------------------------------------
+export async function main(): Promise<void> {
+  process.on("unhandledRejection", (reason) =>
+    logger.error({ err: reason }, "Unhandled rejection — caught by safety net"));
 
-for (let iteration = 1; iteration <= MAX_ITERATIONS; iteration++) {
-  // -----------------------------------------------------------------------
-  // Poll for open issues
-  // -----------------------------------------------------------------------
-  logger.debug("About to call waitForOpenIssues...");
-  const openIssues = await waitForOpenIssues(POLL_INTERVAL_MS, logger);
-  logger.debug("waitForOpenIssues returned.");
-  logger.info(
-    { count: openIssues.length, iteration, maxIterations: MAX_ITERATIONS },
-    "Starting planner",
-  );
+  let shouldShutdown = false;
+  process.on("SIGTERM", () => {
+    logger.info("SIGTERM received — will shut down after current iteration");
+    shouldShutdown = true;
+    setTimeout(() => {
+      logger.fatal("Graceful shutdown timeout — forcing exit");
+      process.exit(1);
+    }, GRACEFUL_SHUTDOWN_MS).unref();
+  });
 
-  // -------------------------------------------------------------------------
-  // Phase 1: Plan
-  // -------------------------------------------------------------------------
-  let issues: PlannerIssue[];
-  try {
-    issues = await runPlanner(
-      sandcastle.run,
-      sandboxProvider,
-      hooks,
-      logger,
-    );
-  } catch (err) {
-    logger.error({ err }, "Phase 1 (plan) failed — exiting loop");
-    break;
+  let iteration = 0;
+  while (true) {
+    iteration++;
+    logger.info({ iteration }, "Heartbeat — starting iteration");
+
+    const openIssues = await waitForOpenIssues(POLL_INTERVAL_MS, logger);
+    logger.info({ count: openIssues.length, iteration }, "Poll complete");
+
+    // Phase 1: Plan
+    let issues: PlannerIssue[];
+    try {
+      issues = await runPlanner(sandcastle.run, sandboxProvider, hooks, logger);
+    } catch (err) {
+      logger.error({ err }, "Plan phase failed — exiting");
+      break;
+    }
+
+    if (issues.length === 0) {
+      logger.info("No unblocked issues — exiting");
+      break;
+    }
+
+    // Phase 2: Execute + Review
+    let completed: PlannerIssue[];
+    try {
+      completed = await runExecutionPhase(
+        issues,
+        sandcastle.createSandbox,
+        sandboxProvider,
+        hooks,
+        copyToWorktree,
+        MAX_PARALLEL_TASKS,
+        logger,
+      );
+    } catch (err) {
+      logger.error({ err }, "Execute phase failed — continuing");
+      continue;
+    }
+
+    const branches = completed.map((i) => i.branch);
+    logger.info({ count: branches.length }, "Execution complete");
+    for (const b of branches) {
+      logger.info(`  ${b}`);
+    }
+
+    if (branches.length === 0) {
+      logger.info("No commits produced. Skipping merge.");
+      continue;
+    }
+
+    // Phase 3: Merge
+    try {
+      await runMergePhase(sandcastle.run, completed, sandboxProvider, hooks, logger);
+    } catch (err) {
+      logger.error({ err }, "Merge phase failed — continuing");
+      continue;
+    }
+
+    logger.info("Branches merged.");
+
+    if (shouldShutdown) {
+      logger.info("Graceful shutdown — iteration complete");
+      break;
+    }
   }
-
-  if (issues.length === 0) {
-    // No unblocked work — either everything is done or everything is blocked.
-    logger.info("No unblocked issues to work on. Exiting.");
-    break;
-  }
-
-  // -------------------------------------------------------------------------
-  // Phase 2: Execute + Review
-  // -------------------------------------------------------------------------
-
-  let completedIssues: PlannerIssue[];
-  try {
-    completedIssues = await runExecutionPhase(
-      issues,
-      sandcastle.createSandbox,
-      sandboxProvider,
-      hooks,
-      copyToWorktree,
-      MAX_PARALLEL_TASKS,
-      logger,
-    );
-  } catch (err) {
-    logger.error({ err }, "Phase 2 (execute) failed — skipping merge, continuing loop");
-    continue;
-  }
-
-  const completedBranches = completedIssues.map((i) => i.branch);
-
-  logger.info({ count: completedBranches.length }, "Execution complete");
-  for (const branch of completedBranches) {
-    logger.info(`  ${branch}`);
-  }
-
-  if (completedBranches.length === 0) {
-    // All agents ran but none made commits — nothing to merge this cycle.
-    logger.info("No commits produced. Nothing to merge.");
-    continue;
-  }
-
-  // ---------------------------------------------------------------------
-  // Phase 3: Merge
-  //
-  // Merge each completed branch into the current branch one at a time.
-  // Per-branch error isolation is handled inside runMergePhase (one
-  // failing merge does not block remaining branches). If the entire
-  // merge phase throws (e.g. sandbox provider failure), log and continue.
-  // ---------------------------------------------------------------------
-  try {
-    await runMergePhase(
-      sandcastle.run,
-      completedIssues,
-      sandboxProvider,
-      hooks,
-      logger,
-    );
-  } catch (err) {
-    logger.error({ err }, "Phase 3 (merge) failed — continuing loop");
-    continue;
-  }
-
-  logger.info("Branches merged.");
 }
+
+main().catch((err) => {
+  logger.fatal({ err }, "Fatal error — exiting");
+  process.exit(1);
+});
