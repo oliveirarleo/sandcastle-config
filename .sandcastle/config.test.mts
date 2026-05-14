@@ -71,12 +71,10 @@ describe("constants", () => {
 	});
 
 	it("MAX_PARALLEL_TASKS is a positive number", () => {
-		expect(typeof MAX_PARALLEL_TASKS).toBe("number");
-		expect(MAX_PARALLEL_TASKS > 0).toBe(true);
+		expect(MAX_PARALLEL_TASKS).toBeGreaterThan(0);
 	});
 
 	it("POLL_INTERVAL_MS is a positive number", () => {
-		expect(typeof POLL_INTERVAL_MS).toBe("number");
-		expect(POLL_INTERVAL_MS > 0).toBe(true);
+		expect(POLL_INTERVAL_MS).toBeGreaterThan(0);
 	});
 });

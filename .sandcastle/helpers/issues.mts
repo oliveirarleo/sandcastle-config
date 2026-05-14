@@ -19,6 +19,13 @@ export async function getOpenIssues(
 	}
 }
 
+/**
+ * Poll for open issues at the configured interval, sleeping between
+ * attempts. Returns as soon as at least one open issue is found.
+ *
+ * The optional `deps` parameter lets tests inject custom query and sleep
+ * implementations without touching the real filesystem or timers.
+ */
 export async function waitForOpenIssues(
 	pollIntervalMs: number,
 	logger?: Logger,

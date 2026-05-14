@@ -1,4 +1,4 @@
-// Parallel Planner with Review — four-phase orchestration loop
+// Parallel Planner with Review — three-phase orchestration loop
 //
 // This template drives a multi-phase workflow:
 //   Phase 1 (Plan):             An opus agent analyzes open issues, builds a
