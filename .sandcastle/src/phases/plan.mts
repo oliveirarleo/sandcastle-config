@@ -53,7 +53,7 @@ export async function runPlanner(
 		name: "planner",
 		maxIterations: 1,
 		agent: pi("opencode-go/deepseek-v4-pro"),
-		promptFile: "./.sandcastle/plan-prompt.md",
+		promptFile: "./.sandcastle/prompts/plan.md",
 		sandbox: sandboxProvider,
 		hooks,
 	});

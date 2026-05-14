@@ -99,7 +99,7 @@ export async function runMergePhase(
 				name: "merger",
 				maxIterations: 1,
 				agent: pi("opencode-go/deepseek-v4-pro"),
-				promptFile: "./.sandcastle/merge-prompt.md",
+				promptFile: "./.sandcastle/prompts/merge.md",
 				branchStrategy: { type: "merge-to-head" },
 				promptArgs: {
 					BRANCHES: `- ${issue.branch}`,
