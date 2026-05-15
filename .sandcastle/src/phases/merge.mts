@@ -1,11 +1,25 @@
-import { exec } from "node:child_process";
-import { promisify } from "node:util";
 import { pi, type SandboxHooks, type SandboxProvider } from "@ai-hero/sandcastle";
 import type { Logger } from "pino";
 import { formatErrorMessage, type Notifier } from "../helpers/notifier.mts";
+import { $ } from "zx";
 import type { PlannerIssue, RunSandbox } from "../types.mts";
 
-const execAsync = promisify(exec);
+$.verbose = false;
+
+// ---------------------------------------------------------------------------
+// Shell helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Execute a shell command string via zx.
+ *
+ * Uses `sh -c` because the input is a command string, not a template literal
+ * with individual arguments that zx would otherwise escape.
+ */
+async function execShell(cmd: string): Promise<{ stdout: string; stderr: string }> {
+	const result = await $`sh -c ${cmd}`.quiet();
+	return { stdout: result.stdout, stderr: result.stderr };
+}
 
 /**
  * Run `pnpm install` after a merge to pick up dependency changes from
@@ -18,7 +32,7 @@ async function installDependencies(
 	issueId: string,
 ): Promise<void> {
 	try {
-		await execAsync("CI=true pnpm install --no-frozen-lockfile");
+		await $`CI=true pnpm install --no-frozen-lockfile`.quiet();
 	} catch (err) {
 		logger?.warn(
 			{ err, branch, issueId },
@@ -32,7 +46,7 @@ async function installDependencies(
  */
 export async function isBranchMerged(
 	branch: string,
-	execFn: (cmd: string) => Promise<{ stdout: string; stderr: string }> = (cmd) => execAsync(cmd),
+	execFn: (cmd: string) => Promise<{ stdout: string; stderr: string }> = execShell,
 ): Promise<boolean> {
 	try {
 		const { stdout } = await execFn("git branch --merged HEAD");
