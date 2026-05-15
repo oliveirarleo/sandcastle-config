@@ -7,6 +7,10 @@
  * determines where sandcastle resumes after a crash or manual stop.
  */
 
+import { exec } from "node:child_process";
+import { promisify } from "node:util";
+import type { BeadsIssue } from "../types.mts";
+
 export const sandcastleLabelPrefix = "sandcastle:";
 
 export const PLANNED = `${sandcastleLabelPrefix}planned`;
@@ -183,9 +187,6 @@ export async function removeLabel(
 // Default implementations
 // ---------------------------------------------------------------------------
 
-import { exec } from "node:child_process";
-import { promisify } from "node:util";
-
 const execAsync = promisify(exec);
 
 async function defaultExec(cmd: string): Promise<string> {
@@ -196,8 +197,6 @@ async function defaultExec(cmd: string): Promise<string> {
 // ---------------------------------------------------------------------------
 // Resume routing helpers
 // ---------------------------------------------------------------------------
-
-import type { BeadsIssue } from "../types.mts";
 
 /** Labels that indicate the planner should be skipped on startup. */
 const RESUME_LABELS = new Set([EXECUTING, REVIEWING, EXECUTED, MERGED]);

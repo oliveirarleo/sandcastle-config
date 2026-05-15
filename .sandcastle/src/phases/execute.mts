@@ -189,8 +189,10 @@ export async function runExecutionPhase(
 				};
 			}
 
-			// implementResult is always defined here (skipImplementer takes the
-			// hasCommits branch above). Return it as-is with 0 commits.
+			// implementResult is always defined at this point because:
+			// - if skipImplementer=true, hasCommits evaluates to true and we return early above
+			// - if skipImplementer=false, implementResult was set by sandbox.run()
+			// The guard exists only for TypeScript narrowing — at runtime it's never reached.
 			/* v8 ignore next 2 */
 			if (!implementResult) {
 				return { stdout: "", commits: [], iterations: [], logFilePath: undefined };
