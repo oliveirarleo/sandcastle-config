@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import type { NotificationSummary } from "./notifier.mts";
 import { NotifierRegistry, NtfyNotifier } from "./notifier.mts";
 

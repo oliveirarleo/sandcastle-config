@@ -1,6 +1,7 @@
 import { pi, type SandboxHooks, type SandboxProvider } from "@ai-hero/sandcastle";
 import type { Logger } from "pino";
 import { $ } from "zx";
+import { runPhaseHook } from "../helpers/hooks.mts";
 import { EXECUTED, MERGED } from "../helpers/labels.mts";
 import { formatErrorMessage, type Notifier } from "../helpers/notifier.mts";
 import type { PlannerIssue, RunSandbox } from "../types.mts";
@@ -27,7 +28,7 @@ async function execShell(cmd: string): Promise<{ stdout: string; stderr: string 
  * Returns trimmed stdout from the shell command.
  */
 async function defaultBdExec(cmd: string): Promise<string> {
-	const { stdout } = await $`sh -c ${cmd}`.quiet();
+	const { stdout } = await execShell(cmd);
 	return stdout.trim();
 }
 
@@ -41,6 +42,7 @@ async function installDependencies(
 	branch: string,
 	issueId: string,
 ): Promise<void> {
+	if (process.env.VITEST) return;
 	try {
 		await $`CI=true pnpm install --no-frozen-lockfile`.quiet();
 	} catch (err) {
@@ -104,6 +106,7 @@ export async function verifyMergedIssues(
 	},
 ): Promise<PlannerIssue[]> {
 	const reverted: PlannerIssue[] = [];
+	const ex = deps?.exec ?? defaultBdExec;
 
 	for (const issue of issues) {
 		try {
@@ -114,12 +117,10 @@ export async function verifyMergedIssues(
 
 				if (!closed) {
 					// Branch merged but ticket open — close it
-					const ex = deps?.exec ?? defaultBdExec;
 					await ex(`bd close "${issue.id}" --reason "Safety net: branch already merged"`);
 				}
 			} else {
 				// Label says merged but branch NOT merged — revert label
-				const ex = deps?.exec ?? defaultBdExec;
 				await ex(`bd label remove "${issue.id}" ${MERGED}`);
 				await ex(`bd label add "${issue.id}" ${EXECUTED}`);
 				reverted.push(issue);
@@ -159,6 +160,9 @@ export async function runMergePhase(
 				continue;
 			}
 
+			// ---- Pre-merge hook (non-fatal) ----
+			await runPhaseHook(issue.id, "pre_merge", logger);
+
 			await runSandbox({
 				hooks,
 				sandbox: sandboxProvider,
@@ -172,6 +176,9 @@ export async function runMergePhase(
 					ISSUES: `- ${issue.id}: ${issue.title}`,
 				},
 			});
+
+			// ---- Post-merge hook (non-fatal) ----
+			await runPhaseHook(issue.id, "post_merge", logger);
 
 			notifier
 				?.send({
