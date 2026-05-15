@@ -4,6 +4,8 @@ import { z } from "zod";
 import { $ } from "zx";
 import { type BeadsIssue, BeadsIssueSchema } from "../types.mts";
 
+$.verbose = false;
+
 export async function getIssuesByLabel(
 	label: string,
 	logger?: Logger,
