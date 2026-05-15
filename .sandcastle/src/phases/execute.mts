@@ -152,17 +152,10 @@ export async function runExecutionPhase(
 
 			if (hasCommits) {
 				// Run Biome linter + formatter on the implementer's changes.
-				// Auto-commit fixes so the reviewer sees clean, style-compliant code.
 				// Skip if implementer was skipped (changes were already linted).
 				if (implementResult) {
 					try {
 						await execAsync("pnpm check");
-						const { stdout: statusOut } = await execAsync("git status --porcelain");
-						if (statusOut.trim()) {
-							await execAsync("git add -A");
-							await execAsync('git commit -m "chore: biome fixes"');
-							logger?.info({ issueId: issue.id }, "Biome applied fixes, committed");
-						}
 					} catch (biomeErr) {
 						// Non-fatal: the reviewer may still catch style issues.
 						logger?.warn(

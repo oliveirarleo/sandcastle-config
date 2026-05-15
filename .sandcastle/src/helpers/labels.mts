@@ -52,17 +52,14 @@ export function stripLabelsCmd(): string {
 
 /**
  * Add a sandcastle phase label to a bead issue.
- * Commits beads export after the mutation.
  */
 export async function addLabel(
 	issueId: string,
 	label: string,
-	deps?: { exec?: (cmd: string) => Promise<string>; commitBeadsExport?: () => Promise<void> },
+	deps?: { exec?: (cmd: string) => Promise<string> },
 ): Promise<void> {
 	const ex = deps?.exec ?? defaultExec;
 	await ex(`bd label add "${issueId}" ${label}`);
-	const commit = deps?.commitBeadsExport ?? commitBeadsExportIfDirty;
-	await commit();
 }
 
 /** Return the lifecycle order index for a sandcastle label. */
@@ -111,18 +108,15 @@ export function validateTransition(from: string, to: string): void {
 
 /**
  * Set a metadata key-value pair on a bead issue.
- * Commits beads export after the mutation.
  */
 export async function setMetadata(
 	issueId: string,
 	key: string,
 	value: string,
-	deps?: { exec?: (cmd: string) => Promise<string>; commitBeadsExport?: () => Promise<void> },
+	deps?: { exec?: (cmd: string) => Promise<string> },
 ): Promise<void> {
 	const ex = deps?.exec ?? defaultExec;
 	await ex(`bd update "${issueId}" --set-metadata ${key}=${value}`);
-	const commit = deps?.commitBeadsExport ?? commitBeadsExportIfDirty;
-	await commit();
 }
 
 /**
@@ -146,11 +140,9 @@ export async function getMetadata(
 
 /**
  * Strip all sandcastle:* labels from every issue in the database.
- * Commits beads export after cleanup.
  */
 export async function cleanupAllSandcastleLabels(deps?: {
 	exec?: (cmd: string) => Promise<string>;
-	commitBeadsExport?: () => Promise<void>;
 }): Promise<void> {
 	const ex = deps?.exec ?? defaultExec;
 	const stdout = await ex("bd label list-all");
@@ -160,8 +152,6 @@ export async function cleanupAllSandcastleLabels(deps?: {
 	for (const label of sandcastleLabels) {
 		await ex(`bd label remove ${label.trim()}`);
 	}
-	const commit = deps?.commitBeadsExport ?? commitBeadsExportIfDirty;
-	await commit();
 }
 
 /**
@@ -179,17 +169,14 @@ export async function hasLabel(
 
 /**
  * Remove a sandcastle phase label from a bead issue.
- * Commits beads export after the mutation.
  */
 export async function removeLabel(
 	issueId: string,
 	label: string,
-	deps?: { exec?: (cmd: string) => Promise<string>; commitBeadsExport?: () => Promise<void> },
+	deps?: { exec?: (cmd: string) => Promise<string> },
 ): Promise<void> {
 	const ex = deps?.exec ?? defaultExec;
 	await ex(`bd label remove "${issueId}" ${label}`);
-	const commit = deps?.commitBeadsExport ?? commitBeadsExportIfDirty;
-	await commit();
 }
 
 // ---------------------------------------------------------------------------
@@ -204,17 +191,6 @@ const execAsync = promisify(exec);
 async function defaultExec(cmd: string): Promise<string> {
 	const { stdout } = await execAsync(cmd);
 	return stdout.trim();
-}
-
-async function commitBeadsExportIfDirty(): Promise<void> {
-	try {
-		const { stdout } = await execAsync("git status --porcelain .beads/issues.jsonl");
-		if (!stdout.trim()) return;
-		await execAsync("git add .beads/issues.jsonl");
-		await execAsync('git commit -m "chore: update beads export"');
-	} catch {
-		// Non-fatal — best-effort commit
-	}
 }
 
 // ---------------------------------------------------------------------------

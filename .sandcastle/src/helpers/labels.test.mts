@@ -68,17 +68,8 @@ describe("stripLabelsCmd", () => {
 describe("addLabel", () => {
 	it("executes bd label add with correct issue and label", async () => {
 		const exec = vi.fn<(cmd: string) => Promise<string>>().mockResolvedValue("");
-		await addLabel("issue-1", PLANNED, { exec, commitBeadsExport: async () => {} });
+		await addLabel("issue-1", PLANNED, { exec });
 		expect(exec).toHaveBeenCalledWith(`bd label add "issue-1" ${PLANNED}`);
-	});
-
-	it("commits beads export after adding label", async () => {
-		const commitBeadsExport = vi.fn<() => Promise<void>>().mockResolvedValue();
-		await addLabel("issue-1", PLANNED, {
-			exec: async () => "",
-			commitBeadsExport,
-		});
-		expect(commitBeadsExport).toHaveBeenCalledOnce();
 	});
 });
 
@@ -192,17 +183,8 @@ describe("validateTransition", () => {
 describe("setMetadata", () => {
 	it("executes bd update --set-metadata with correct args", async () => {
 		const exec = vi.fn<(cmd: string) => Promise<string>>().mockResolvedValue("");
-		await setMetadata("issue-1", "phase", "executing", { exec, commitBeadsExport: async () => {} });
+		await setMetadata("issue-1", "phase", "executing", { exec });
 		expect(exec).toHaveBeenCalledWith(`bd update "issue-1" --set-metadata phase=executing`);
-	});
-
-	it("commits beads export after setting metadata", async () => {
-		const commitBeadsExport = vi.fn<() => Promise<void>>().mockResolvedValue();
-		await setMetadata("issue-1", "phase", "executing", {
-			exec: async () => "",
-			commitBeadsExport,
-		});
-		expect(commitBeadsExport).toHaveBeenCalledOnce();
 	});
 });
 
@@ -241,11 +223,11 @@ describe("getMetadata", () => {
 });
 
 describe("cleanupAllSandcastleLabels", () => {
-	it("removes each sandcastle label and commits", async () => {
+	it("removes each sandcastle label", async () => {
 		const exec = vi.fn<(cmd: string) => Promise<string>>();
 		exec.mockResolvedValueOnce("sandcastle:planned\nsandcastle:executing\nother:label\n");
 
-		await cleanupAllSandcastleLabels({ exec, commitBeadsExport: async () => {} });
+		await cleanupAllSandcastleLabels({ exec });
 
 		expect(exec).toHaveBeenCalledWith("bd label list-all");
 		expect(exec).toHaveBeenCalledWith("bd label remove sandcastle:planned");
@@ -253,20 +235,11 @@ describe("cleanupAllSandcastleLabels", () => {
 		expect(exec).not.toHaveBeenCalledWith("bd label remove other:label");
 	});
 
-	it("commits beads export after cleanup", async () => {
-		const commitBeadsExport = vi.fn<() => Promise<void>>().mockResolvedValue();
-		await cleanupAllSandcastleLabels({
-			exec: async () => "sandcastle:planned\n",
-			commitBeadsExport,
-		});
-		expect(commitBeadsExport).toHaveBeenCalledOnce();
-	});
-
 	it("does nothing when no sandcastle labels exist", async () => {
 		const exec = vi.fn<(cmd: string) => Promise<string>>();
 		exec.mockResolvedValueOnce("other:label\nanother:tag\n");
 
-		await cleanupAllSandcastleLabels({ exec, commitBeadsExport: async () => {} });
+		await cleanupAllSandcastleLabels({ exec });
 
 		expect(exec).toHaveBeenCalledTimes(1); // only list-all
 		expect(exec).toHaveBeenCalledWith("bd label list-all");
@@ -276,16 +249,7 @@ describe("cleanupAllSandcastleLabels", () => {
 describe("removeLabel", () => {
 	it("executes bd label remove with correct issue and label", async () => {
 		const exec = vi.fn<(cmd: string) => Promise<string>>().mockResolvedValue("");
-		await removeLabel("issue-1", PLANNED, { exec, commitBeadsExport: async () => {} });
+		await removeLabel("issue-1", PLANNED, { exec });
 		expect(exec).toHaveBeenCalledWith(`bd label remove "issue-1" ${PLANNED}`);
-	});
-
-	it("commits beads export after removing label", async () => {
-		const commitBeadsExport = vi.fn<() => Promise<void>>().mockResolvedValue();
-		await removeLabel("issue-1", PLANNED, {
-			exec: async () => "",
-			commitBeadsExport,
-		});
-		expect(commitBeadsExport).toHaveBeenCalledOnce();
 	});
 });
