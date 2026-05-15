@@ -8,8 +8,8 @@ import {
 import type { Logger } from "pino";
 import { $ } from "zx";
 import { runWithConcurrencyLimit } from "../helpers/concurrency.mts";
-import { formatErrorMessage, type Notifier } from "../helpers/notifier.mts";
 import { EXECUTED, EXECUTING, REVIEWING } from "../helpers/labels.mts";
+import { formatErrorMessage, type Notifier } from "../helpers/notifier.mts";
 import type { PlannerIssue } from "../types.mts";
 
 $.verbose = false;
@@ -29,7 +29,8 @@ export interface ExecuteLabelCallbacks {
 	onImplementStart?: (issueId: string) => Promise<void>;
 	/** Called when the reviewer agent starts running for an issue. */
 	onReviewStart?: (issueId: string) => Promise<void>;
-	/** Called after implement + review complete successfully (commits produced). */
+	/** Called after implement + review complete, or when zero commits produced.
+	 * Always transitions the label forward so the issue is not stuck at executing. */
 	onExecuteComplete?: (issueId: string) => Promise<void>;
 	/**
 	 * Called after the implementer run finishes, with the session ID if one was
@@ -205,10 +206,15 @@ export async function runExecutionPhase(
 			// - if skipImplementer=true, hasCommits evaluates to true and we return early above
 			// - if skipImplementer=false, implementResult was set by sandbox.run()
 			// The guard exists only for TypeScript narrowing — at runtime it's never reached.
-			/* v8 ignore next 2 */
+			/* v8 ignore next 4 */
 			if (!implementResult) {
 				return { stdout: "", commits: [], iterations: [], logFilePath: undefined };
 			}
+
+			// Zero-commit: implementer produced no output. Mark as executed so the label
+			// doesn't stay stuck at 'executing' on resume. No reviewer label is set.
+			await labelCallbacks?.onExecuteComplete?.(issue.id);
+			lastPhaseLabel = EXECUTED;
 			return implementResult;
 		} catch (err) {
 			// Revert phase label on crash so the issue reappears at the right

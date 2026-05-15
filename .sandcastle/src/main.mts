@@ -14,7 +14,6 @@ import {
 	sandboxProvider,
 } from "./config.mts";
 import { waitForOpenIssues } from "./helpers/issues.mts";
-import { createNotifierFromEnv, formatErrorMessage } from "./helpers/notifier.mts";
 import {
 	addLabel,
 	classifyResumeLabel,
@@ -28,6 +27,7 @@ import {
 	setMetadata,
 	shouldSkipPlanner,
 } from "./helpers/labels.mts";
+import { createNotifierFromEnv, formatErrorMessage } from "./helpers/notifier.mts";
 import { type ExecuteLabelCallbacks, runExecutionPhase } from "./phases/execute.mts";
 import { runMergePhase } from "./phases/merge.mts";
 import { runPlanner } from "./phases/plan.mts";
@@ -220,7 +220,6 @@ export async function main(): Promise<void> {
 				break;
 			}
 		}
-		}
 
 		// ---------------------------------------------------------------------------
 		// Phase 2: Execute + Review
@@ -238,6 +237,7 @@ export async function main(): Promise<void> {
 					MAX_PARALLEL_TASKS,
 					logger,
 					labelCallbacks,
+					notifier,
 				);
 			} catch (err) {
 				logger.error({ err }, "Execute phase failed — continuing");
