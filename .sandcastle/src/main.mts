@@ -12,10 +12,22 @@ import {
 	sandboxProvider,
 } from "./config.mts";
 import { waitForOpenIssues } from "./helpers/issues.mts";
+import { createNotifierFromEnv } from "./helpers/notifier.mts";
 import { runExecutionPhase } from "./phases/execute.mts";
 import { runMergePhase } from "./phases/merge.mts";
 import { runPlanner } from "./phases/plan.mts";
 import type { PlannerIssue } from "./types.mts";
+
+// ---------------------------------------------------------------------------
+// Notifier (optional — null when NTFY_TOPIC_URL is not set)
+// ---------------------------------------------------------------------------
+
+const notifier = createNotifierFromEnv();
+if (notifier) {
+	logger.info("Notifier enabled via NTFY_TOPIC_URL");
+} else {
+	logger.info("Notifier disabled — set NTFY_TOPIC_URL to enable ntfy.sh notifications");
+}
 
 export async function main(): Promise<void> {
 	process.on("unhandledRejection", (reason) =>
@@ -46,6 +58,15 @@ export async function main(): Promise<void> {
 			issues = await runPlanner(sandcastle.run, sandboxProvider, hooks, logger);
 		} catch (err) {
 			logger.error({ err }, "Plan phase failed — exiting");
+			const errMsg = err instanceof Error ? err.message.slice(0, 500) : String(err);
+			notifier
+				?.send({
+					level: "error",
+					title: "Plan phase failed",
+					message: `Planning phase failed: ${errMsg}`,
+					tags: ["plan", "sandcastle", "error"],
+				})
+				.catch(() => {});
 			break;
 		}
 
@@ -65,9 +86,20 @@ export async function main(): Promise<void> {
 				copyToWorktree,
 				MAX_PARALLEL_TASKS,
 				logger,
+				undefined,
+				notifier ?? undefined,
 			);
 		} catch (err) {
 			logger.error({ err }, "Execute phase failed — continuing");
+			const errMsg = err instanceof Error ? err.message.slice(0, 500) : String(err);
+			notifier
+				?.send({
+					level: "error",
+					title: "Execute phase failed",
+					message: `Execution phase failed: ${errMsg}`,
+					tags: ["execute", "sandcastle", "error"],
+				})
+				.catch(() => {});
 			continue;
 		}
 
@@ -82,9 +114,25 @@ export async function main(): Promise<void> {
 
 		// Phase 3: Merge
 		try {
-			await runMergePhase(sandcastle.run, completed, sandboxProvider, hooks, logger);
+			await runMergePhase(
+				sandcastle.run,
+				completed,
+				sandboxProvider,
+				hooks,
+				logger,
+				undefined,
+				notifier ?? undefined,
+			);
 		} catch (err) {
 			logger.error({ err }, "Merge phase failed — continuing");
+			notifier
+				?.send({
+					level: "error",
+					title: "Merge phase failed",
+					message: `Merge phase failed: ${err instanceof Error ? err.message.slice(0, 500) : String(err)}`,
+					tags: ["merge", "sandcastle", "error"],
+				})
+				.catch(() => {});
 			continue;
 		}
 
