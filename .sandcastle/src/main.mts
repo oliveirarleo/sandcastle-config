@@ -14,7 +14,6 @@ import {
 	sandboxProvider,
 } from "./config.mts";
 import { waitForOpenIssues } from "./helpers/issues.mts";
-import { createNotifierFromEnv, formatErrorMessage } from "./helpers/notifier.mts";
 import {
 	addLabel,
 	classifyResumeLabel,
@@ -28,8 +27,9 @@ import {
 	setMetadata,
 	shouldSkipPlanner,
 } from "./helpers/labels.mts";
+import { createNotifierFromEnv, formatErrorMessage } from "./helpers/notifier.mts";
 import { type ExecuteLabelCallbacks, runExecutionPhase } from "./phases/execute.mts";
-import { runMergePhase } from "./phases/merge.mts";
+import { runMergePhase, verifyMergedIssues } from "./phases/merge.mts";
 import { runPlanner } from "./phases/plan.mts";
 import type { BeadsIssue, PlannerIssue } from "./types.mts";
 
@@ -90,19 +90,31 @@ export function createLabelCallbacks(deps?: {
  */
 async function routeResumeIssues(
 	openIssues: BeadsIssue[],
-): Promise<{ execute: PlannerIssue[]; merge: PlannerIssue[] }> {
+): Promise<{ execute: PlannerIssue[]; merge: PlannerIssue[]; merged: PlannerIssue[] }> {
 	const execute: PlannerIssue[] = [];
 	const merge: PlannerIssue[] = [];
+	const merged: PlannerIssue[] = [];
 
 	for (const issue of openIssues) {
 		const routing = classifyResumeLabel(issue);
+		const branch = (await getMetadata(issue.id, "sandcastleBranch")) ?? `sandcastle/${issue.id}`;
 
-		if (routing === "skip") continue;
+		if (routing === "skip") {
+			// Issues labeled merged need safety-net verification
+			if (issue.labels.includes(MERGED)) {
+				merged.push({
+					id: issue.id,
+					title: issue.title,
+					branch,
+					skipImplementer: true,
+				});
+			}
+			continue;
+		}
 
-		// Load persisted metadata for resume sessions and branch name
+		// Load persisted metadata for resume sessions
 		const implementSession = await getMetadata(issue.id, "implementSession");
 		const reviewSession = await getMetadata(issue.id, "reviewSession");
-		const branch = (await getMetadata(issue.id, "sandcastleBranch")) ?? `sandcastle/${issue.id}`;
 
 		const labels = new Set(issue.labels);
 
@@ -130,7 +142,7 @@ async function routeResumeIssues(
 		}
 	}
 
-	return { execute, merge };
+	return { execute, merge, merged };
 }
 
 // ---------------------------------------------------------------------------
@@ -195,6 +207,20 @@ export async function main(): Promise<void> {
 			const routed = await routeResumeIssues(openIssues);
 			issues = routed.execute;
 			resumeMerge = routed.merge;
+
+			// Safety net: verify merged-labeled issues
+			if (routed.merged.length > 0) {
+				logger.info({ count: routed.merged.length }, "Safety net: verifying merged-labeled issues");
+				const reverted = await verifyMergedIssues(routed.merged, { logger });
+				if (reverted.length > 0) {
+					logger.info(
+						{ count: reverted.length, issues: reverted.map((i) => i.id) },
+						"Safety net: merged labels reverted — issues need re-merge",
+					);
+					resumeMerge.push(...reverted);
+				}
+			}
+
 			logger.info(
 				{ executeCount: issues.length, mergeCount: resumeMerge.length },
 				"Resume routing complete",
@@ -219,7 +245,6 @@ export async function main(): Promise<void> {
 				logger.info("No unblocked issues — exiting");
 				break;
 			}
-		}
 		}
 
 		// ---------------------------------------------------------------------------

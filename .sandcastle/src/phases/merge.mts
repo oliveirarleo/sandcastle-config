@@ -1,7 +1,8 @@
 import { pi, type SandboxHooks, type SandboxProvider } from "@ai-hero/sandcastle";
 import type { Logger } from "pino";
-import { formatErrorMessage, type Notifier } from "../helpers/notifier.mts";
 import { $ } from "zx";
+import { EXECUTED, MERGED } from "../helpers/labels.mts";
+import { formatErrorMessage, type Notifier } from "../helpers/notifier.mts";
 import type { PlannerIssue, RunSandbox } from "../types.mts";
 
 $.verbose = false;
@@ -19,6 +20,15 @@ $.verbose = false;
 async function execShell(cmd: string): Promise<{ stdout: string; stderr: string }> {
 	const result = await $`sh -c ${cmd}`.quiet();
 	return { stdout: result.stdout, stderr: result.stderr };
+}
+
+/**
+ * Default exec function for bd commands.
+ * Returns trimmed stdout from the shell command.
+ */
+async function defaultBdExec(cmd: string): Promise<string> {
+	const { stdout } = await $`sh -c ${cmd}`.quiet();
+	return stdout.trim();
 }
 
 /**
@@ -54,6 +64,75 @@ export async function isBranchMerged(
 	} catch {
 		return false;
 	}
+}
+
+/**
+ * Check if a bead issue is closed via `bd show --json`.
+ */
+export async function isIssueClosed(
+	issueId: string,
+	execFn: (cmd: string) => Promise<{ stdout: string; stderr: string }> = execShell,
+): Promise<boolean> {
+	try {
+		const { stdout } = await execFn(`bd show "${issueId}" --json`);
+		const parsed = JSON.parse(stdout);
+		const status = parsed?.data?.[0]?.status;
+		return status === "closed";
+	} catch {
+		return false;
+	}
+}
+
+/**
+ * Verify merged-labeled issues during resume (safety net).
+ *
+ * For each issue with a sandcastle:merged label:
+ * 1. Check if the branch is actually merged (git branch --merged)
+ * 2. If merged, check if the bead ticket is closed (bd show --json)
+ * 3. If branch merged but ticket open → bd close
+ * 4. If branch NOT merged → revert label to executed for re-merge
+ *
+ * @returns The issues whose labels were reverted (need re-merge).
+ */
+export async function verifyMergedIssues(
+	issues: PlannerIssue[],
+	deps?: {
+		logger?: Logger;
+		isBranchMergedFn?: (branch: string) => Promise<{ stdout: string; stderr: string }>;
+		isIssueClosedFn?: (issueId: string) => Promise<{ stdout: string; stderr: string }>;
+		exec?: (cmd: string) => Promise<string>;
+	},
+): Promise<PlannerIssue[]> {
+	const reverted: PlannerIssue[] = [];
+
+	for (const issue of issues) {
+		try {
+			const branchMerged = await isBranchMerged(issue.branch, deps?.isBranchMergedFn);
+
+			if (branchMerged) {
+				const closed = await isIssueClosed(issue.id, deps?.isIssueClosedFn);
+
+				if (!closed) {
+					// Branch merged but ticket open — close it
+					const ex = deps?.exec ?? defaultBdExec;
+					await ex(`bd close "${issue.id}" --reason "Safety net: branch already merged"`);
+				}
+			} else {
+				// Label says merged but branch NOT merged — revert label
+				const ex = deps?.exec ?? defaultBdExec;
+				await ex(`bd label remove "${issue.id}" ${MERGED}`);
+				await ex(`bd label add "${issue.id}" ${EXECUTED}`);
+				reverted.push(issue);
+			}
+		} catch (err) {
+			deps?.logger?.error(
+				{ err, issueId: issue.id, branch: issue.branch },
+				"Safety net check failed for issue",
+			);
+		}
+	}
+
+	return reverted;
 }
 
 export async function runMergePhase(

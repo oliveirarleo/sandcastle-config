@@ -1,8 +1,9 @@
 import type { RunOptions, RunResult, SandboxHooks, SandboxProvider } from "@ai-hero/sandcastle";
 import { describe, expect, it, vi } from "vitest";
+import { MERGED } from "../helpers/labels.mts";
 import type { Notifier } from "../helpers/notifier.mts";
 import type { PlannerIssue } from "../types.mts";
-import { isBranchMerged, runMergePhase } from "./merge.mts";
+import { isBranchMerged, isIssueClosed, runMergePhase, verifyMergedIssues } from "./merge.mts";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -209,6 +210,178 @@ describe("notifier integration", () => {
 				notif,
 			),
 		).resolves.toBeUndefined();
+	});
+});
+
+describe("verifyMergedIssues", () => {
+	it("returns empty array when no merged issues provided", async () => {
+		const result = await verifyMergedIssues([]);
+		expect(result).toEqual([]);
+	});
+
+	it("does nothing when branch is merged and ticket is closed", async () => {
+		const exec = vi.fn<(cmd: string) => Promise<string>>().mockResolvedValue("");
+
+		const issues: PlannerIssue[] = [{ id: "issue-1", title: "Fix A", branch: "branch-a" }];
+
+		// Mock isBranchMerged to return true
+		const mergedDep = async () => ({
+			stdout: "  branch-a\n  main\n",
+			stderr: "",
+		});
+		// Mock isIssueClosed to return true (status: closed)
+		const closedDep = async () => ({
+			stdout: JSON.stringify({ data: [{ status: "closed" }] }),
+			stderr: "",
+		});
+
+		const result = await verifyMergedIssues(issues, {
+			isBranchMergedFn: mergedDep,
+			isIssueClosedFn: closedDep,
+			exec,
+		});
+
+		expect(result).toEqual([]);
+		expect(exec).not.toHaveBeenCalled();
+	});
+
+	it("closes ticket via bd close when branch merged but ticket open", async () => {
+		const exec = vi.fn<(cmd: string) => Promise<string>>().mockResolvedValue("");
+
+		const issues: PlannerIssue[] = [{ id: "issue-1", title: "Fix A", branch: "branch-a" }];
+
+		// Mock isBranchMerged to return true
+		const mergedDep = async () => ({
+			stdout: "  branch-a\n  main\n",
+			stderr: "",
+		});
+		// Mock isIssueClosed to return false (ticket still open)
+		const closedDep = async () => ({
+			stdout: JSON.stringify({ data: [{ status: "open" }] }),
+			stderr: "",
+		});
+
+		const result = await verifyMergedIssues(issues, {
+			isBranchMergedFn: mergedDep,
+			isIssueClosedFn: closedDep,
+			exec,
+		});
+
+		expect(result).toEqual([]);
+		expect(exec).toHaveBeenCalledWith(expect.stringContaining('bd close "issue-1"'));
+	});
+
+	it("reverts label and returns issue when branch not merged", async () => {
+		const exec = vi.fn<(cmd: string) => Promise<string>>().mockResolvedValue("");
+
+		const issues: PlannerIssue[] = [{ id: "issue-1", title: "Fix A", branch: "branch-a" }];
+
+		// Mock isBranchMerged to return false
+		const mergedDep = async () => ({
+			stdout: "  main\n",
+			stderr: "",
+		});
+
+		const result = await verifyMergedIssues(issues, {
+			isBranchMergedFn: mergedDep,
+			exec,
+		});
+
+		expect(result).toHaveLength(1);
+		expect(result[0]?.id).toBe("issue-1");
+		// Should remove merged label and add executed label
+		expect(exec).toHaveBeenCalledWith(`bd label remove "issue-1" ${MERGED}`);
+		expect(exec).toHaveBeenCalledWith(`bd label add "issue-1" sandcastle:executed`);
+	});
+
+	it("error in one issue's label commands does not block processing others", async () => {
+		const issues: PlannerIssue[] = [
+			{ id: "issue-1", title: "Fix A", branch: "branch-a" },
+			{ id: "issue-2", title: "Fix B", branch: "branch-b" },
+		];
+
+		// exec fails on first call (issue-1), succeeds on rest
+		let execCall = 0;
+		const exec = vi.fn<(cmd: string) => Promise<string>>(async () => {
+			execCall++;
+			if (execCall === 1) throw new Error("label remove failed");
+			return "";
+		});
+
+		const mergedDep = async () => ({ stdout: "  main\n", stderr: "" });
+
+		const result = await verifyMergedIssues(issues, {
+			isBranchMergedFn: mergedDep,
+			exec,
+		});
+
+		// Only issue-2 was successfully reverted (issue-1's label command failed)
+		expect(result).toHaveLength(1);
+		expect(result[0]?.id).toBe("issue-2");
+	});
+
+	it("partially reverts: one branch merged, one not", async () => {
+		const exec = vi.fn<(cmd: string) => Promise<string>>().mockResolvedValue("");
+
+		const issues: PlannerIssue[] = [
+			{ id: "issue-1", title: "Fix A", branch: "branch-a" },
+			{ id: "issue-2", title: "Fix B", branch: "branch-b" },
+		];
+
+		let callCount = 0;
+		const mergedDep = async () => {
+			callCount++;
+			if (callCount === 1) return { stdout: "  branch-a\n  main\n", stderr: "" }; // merged
+			return { stdout: "  main\n", stderr: "" }; // not merged
+		};
+
+		const closedDep = async () => ({
+			stdout: JSON.stringify({ data: [{ status: "closed" }] }),
+			stderr: "",
+		});
+
+		const result = await verifyMergedIssues(issues, {
+			isBranchMergedFn: mergedDep,
+			isIssueClosedFn: closedDep,
+			exec,
+		});
+
+		// Only issue-2 was reverted
+		expect(result).toHaveLength(1);
+		expect(result[0]?.id).toBe("issue-2");
+	});
+});
+
+describe("isIssueClosed", () => {
+	it("returns true when status is closed", async () => {
+		const result = await isIssueClosed("issue-1", async () => ({
+			stdout: JSON.stringify({ data: [{ status: "closed" }] }),
+			stderr: "",
+		}));
+		expect(result).toBe(true);
+	});
+
+	it("returns false when status is open", async () => {
+		const result = await isIssueClosed("issue-1", async () => ({
+			stdout: JSON.stringify({ data: [{ status: "open" }] }),
+			stderr: "",
+		}));
+		expect(result).toBe(false);
+	});
+
+	it("returns false when bd show fails", async () => {
+		const result = await isIssueClosed("issue-1", async () => {
+			throw new Error("bd show failed");
+		});
+		expect(result).toBe(false);
+	});
+
+	it("returns false on unparseable JSON", async () => {
+		const result = await isIssueClosed("issue-1", async () => ({
+			stdout: "not json",
+			stderr: "",
+		}));
+		expect(result).toBe(false);
 	});
 });
 
