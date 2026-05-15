@@ -37,7 +37,7 @@ If applicable, use RGR to complete the task.
 
 Before committing, run these quality gates:
 
-1. `npm run check` — Biome linter + formatter (fixes style issues automatically)
+1. `npm run check` — Biome linter + formatter (fixes some issues automaticallyi, fix the remaining issues)
 2. `npm run typecheck` — TypeScript type checking
 3. `npm run test` — Vitest test suite
 

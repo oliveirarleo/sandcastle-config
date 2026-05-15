@@ -7,6 +7,13 @@ import { NotifierRegistry, NtfyNotifier } from "./notifier.mts";
 // ---------------------------------------------------------------------------
 
 describe("NtfyNotifier", () => {
+	beforeEach(() => {
+		vi.spyOn(console, "warn").mockImplementation(() => {});
+	});
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
 	it("posts JSON to the configured topic URL", async () => {
 		const fetchMock = vi.fn().mockResolvedValue({ ok: true } as Response);
 		const notifier = new NtfyNotifier(
@@ -113,6 +120,13 @@ describe("NtfyNotifier", () => {
 // ---------------------------------------------------------------------------
 
 describe("NotifierRegistry", () => {
+	beforeEach(() => {
+		vi.spyOn(console, "warn").mockImplementation(() => {});
+	});
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
 	it("dispatches to all registered notifiers", async () => {
 		const fetch1 = vi.fn().mockResolvedValue({ ok: true } as Response);
 		const fetch2 = vi.fn().mockResolvedValue({ ok: true } as Response);
