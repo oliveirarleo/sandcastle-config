@@ -188,6 +188,12 @@ export async function removeLabel(
 // Default implementations
 // ---------------------------------------------------------------------------
 
+/**
+ * Execute a shell command string via zx and return trimmed stdout.
+ *
+ * Uses `sh -c` because the input is a command string, not a template literal
+ * with individual arguments that zx would otherwise escape.
+ */
 async function defaultExec(cmd: string): Promise<string> {
 	const { stdout } = await $`sh -c ${cmd}`.quiet();
 	return stdout.trim();
