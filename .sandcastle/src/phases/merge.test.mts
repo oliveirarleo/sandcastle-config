@@ -1,7 +1,16 @@
 import type { RunOptions, RunResult, SandboxHooks, SandboxProvider } from "@ai-hero/sandcastle";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import type { Notifier } from "../helpers/notifier.mts";
 import type { PlannerIssue } from "../types.mts";
 import { isBranchMerged, runMergePhase } from "./merge.mts";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function mockNotifier(): Notifier & { send: ReturnType<typeof vi.fn> } {
+	return { send: vi.fn().mockResolvedValue(undefined) };
+}
 
 const NOOP_SANDBOX = {} as unknown as SandboxProvider;
 const NOOP_HOOKS = {} as unknown as SandboxHooks;
@@ -122,6 +131,84 @@ describe("runMergePhase", () => {
 		);
 
 		expect(completed).toEqual([]);
+	});
+});
+
+describe("notifier integration", () => {
+	it("sends info notification after successful merge", async () => {
+		const notif = mockNotifier();
+
+		async function mockRunSucceeded(_opts: RunOptions): Promise<RunResult> {
+			return { stdout: "", commits: [], iterations: [], branch: "main" };
+		}
+
+		await runMergePhase(
+			mockRunSucceeded,
+			[{ branch: "branch-a", id: "issue-1", title: "Fix A" }],
+			NOOP_SANDBOX,
+			NOOP_HOOKS,
+			undefined,
+			undefined,
+			notif,
+		);
+
+		expect(notif.send).toHaveBeenCalledTimes(1);
+		expect(notif.send).toHaveBeenCalledWith(
+			expect.objectContaining({
+				level: "info",
+				title: expect.stringContaining("branch-a"),
+				tags: ["merge", "sandcastle"],
+			}),
+		);
+	});
+
+	it("sends warn notification on merge failure", async () => {
+		const notif = mockNotifier();
+
+		async function mockRunFails(_opts: RunOptions): Promise<RunResult> {
+			throw new Error("merge conflict");
+		}
+
+		await runMergePhase(
+			mockRunFails,
+			[{ branch: "branch-b", id: "issue-2", title: "Fix B" }],
+			NOOP_SANDBOX,
+			NOOP_HOOKS,
+			undefined,
+			undefined,
+			notif,
+		);
+
+		expect(notif.send).toHaveBeenCalledTimes(1);
+		expect(notif.send).toHaveBeenCalledWith(
+			expect.objectContaining({
+				level: "warn",
+				title: expect.stringContaining("branch-b"),
+				tags: ["merge", "sandcastle", "error"],
+			}),
+		);
+	});
+
+	it("notifier failure does not crash merge phase", async () => {
+		const notif: Notifier = {
+			send: vi.fn().mockRejectedValue(new Error("notifier crash")),
+		};
+
+		async function mockRunSucceeded(_opts: RunOptions): Promise<RunResult> {
+			return { stdout: "", commits: [], iterations: [], branch: "main" };
+		}
+
+		await expect(
+			runMergePhase(
+				mockRunSucceeded,
+				[{ branch: "branch-c", id: "issue-3", title: "Fix C" }],
+				NOOP_SANDBOX,
+				NOOP_HOOKS,
+				undefined,
+				undefined,
+				notif,
+			),
+		).resolves.toBeUndefined();
 	});
 });
 
