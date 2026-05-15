@@ -1,6 +1,7 @@
 import { pi, type SandboxHooks, type SandboxProvider } from "@ai-hero/sandcastle";
 import type { Logger } from "pino";
 import { $ } from "zx";
+import { formatErrorMessage, type Notifier } from "../helpers/notifier.mts";
 import type { PlannerIssue, RunSandbox } from "../types.mts";
 
 $.verbose = false;
@@ -62,6 +63,7 @@ export async function runMergePhase(
 	hooks: SandboxHooks,
 	logger?: Logger,
 	onMergeComplete?: (issueId: string) => Promise<void>,
+	notifier?: Notifier,
 ): Promise<void> {
 	for (const issue of completedIssues) {
 		logger?.info({ branch: issue.branch, issueId: issue.id }, "Merging branch");
@@ -92,6 +94,15 @@ export async function runMergePhase(
 				},
 			});
 
+			notifier
+				?.send({
+					level: "info",
+					title: `Merged ${issue.branch}`,
+					message: `Branch ${issue.branch} (${issue.id}: ${issue.title}) merged successfully.`,
+					tags: ["merge", "sandcastle"],
+				})
+				.catch(() => {});
+
 			await onMergeComplete?.(issue.id);
 
 			logger?.info({ branch: issue.branch, issueId: issue.id }, "Running pnpm install after merge");
@@ -101,6 +112,15 @@ export async function runMergePhase(
 				{ err, branch: issue.branch, issueId: issue.id },
 				`Merge failed for ${issue.id} (${issue.branch}), continuing with remaining branches`,
 			);
+
+			notifier
+				?.send({
+					level: "warn",
+					title: `Merge failed: ${issue.branch}`,
+					message: `Branch ${issue.branch} (${issue.id}) merge failed: ${formatErrorMessage(err)}`,
+					tags: ["merge", "sandcastle", "error"],
+				})
+				.catch(() => {});
 		}
 	}
 }

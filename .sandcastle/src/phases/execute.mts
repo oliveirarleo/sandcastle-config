@@ -8,6 +8,7 @@ import {
 import type { Logger } from "pino";
 import { $ } from "zx";
 import { runWithConcurrencyLimit } from "../helpers/concurrency.mts";
+import { formatErrorMessage, type Notifier } from "../helpers/notifier.mts";
 import type { PlannerIssue } from "../types.mts";
 
 $.verbose = false;
@@ -79,6 +80,7 @@ export async function runExecutionPhase(
 	maxParallelTasks: number,
 	logger?: Logger,
 	labelCallbacks?: ExecuteLabelCallbacks,
+	notifier?: Notifier,
 ): Promise<PlannerIssue[]> {
 	async function executeOneIssue(rawIssue: PlannerIssue): Promise<SandboxRunResult> {
 		// Resolve stale sessions before creating the sandbox.
@@ -209,6 +211,14 @@ export async function runExecutionPhase(
 			const issue = issues[i];
 			if (issue) {
 				logger?.error({ err: outcome.reason }, `✗ ${issue.id} (${issue.branch}) failed`);
+				notifier
+					?.send({
+						level: "error",
+						title: `Execute failed: ${issue.id}`,
+						message: `Issue ${issue.id} (${issue.branch}) failed during execution: ${formatErrorMessage(outcome.reason)}`,
+						tags: ["execute", "sandcastle", "error"],
+					})
+					.catch(() => {});
 			}
 		}
 	}
