@@ -2,7 +2,7 @@ import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import { pi, type SandboxHooks, type SandboxProvider } from "@ai-hero/sandcastle";
 import type { Logger } from "pino";
-import type { Notifier } from "../helpers/notifier.mts";
+import { formatErrorMessage, type Notifier } from "../helpers/notifier.mts";
 import type { PlannerIssue, RunSandbox } from "../types.mts";
 
 const execAsync = promisify(exec);
@@ -80,7 +80,6 @@ export async function runMergePhase(
 				},
 			});
 
-			// Notify merge success
 			notifier
 				?.send({
 					level: "info",
@@ -100,13 +99,11 @@ export async function runMergePhase(
 				`Merge failed for ${issue.id} (${issue.branch}), continuing with remaining branches`,
 			);
 
-			// Notify merge failure (per-branch)
-			const errMsg = err instanceof Error ? err.message.slice(0, 500) : String(err);
 			notifier
 				?.send({
 					level: "warn",
 					title: `Merge failed: ${issue.branch}`,
-					message: `Branch ${issue.branch} (${issue.id}) merge failed: ${errMsg}`,
+					message: `Branch ${issue.branch} (${issue.id}) merge failed: ${formatErrorMessage(err)}`,
 					tags: ["merge", "sandcastle", "error"],
 				})
 				.catch(() => {});

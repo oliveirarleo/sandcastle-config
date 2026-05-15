@@ -9,7 +9,7 @@ import {
 } from "@ai-hero/sandcastle";
 import type { Logger } from "pino";
 import { runWithConcurrencyLimit } from "../helpers/concurrency.mts";
-import type { Notifier } from "../helpers/notifier.mts";
+import { formatErrorMessage, type Notifier } from "../helpers/notifier.mts";
 import type { PlannerIssue } from "../types.mts";
 
 const execAsync = promisify(exec);
@@ -212,16 +212,11 @@ export async function runExecutionPhase(
 			const issue = issues[i];
 			if (issue) {
 				logger?.error({ err: outcome.reason }, `✗ ${issue.id} (${issue.branch}) failed`);
-				// Notify per-issue execution failure (fire-and-forget)
-				const errMsg =
-					outcome.reason instanceof Error
-						? outcome.reason.message.slice(0, 500)
-						: String(outcome.reason);
 				notifier
 					?.send({
 						level: "error",
 						title: `Execute failed: ${issue.id}`,
-						message: `Issue ${issue.id} (${issue.branch}) failed during execution: ${errMsg}`,
+						message: `Issue ${issue.id} (${issue.branch}) failed during execution: ${formatErrorMessage(outcome.reason)}`,
 						tags: ["execute", "sandcastle", "error"],
 					})
 					.catch(() => {});
