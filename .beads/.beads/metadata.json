@@ -1,7 +1,7 @@
 {
-	"database": "dolt",
-	"backend": "dolt",
-	"dolt_mode": "embedded",
-	"dolt_database": "sandcastle",
-	"project_id": "620c8d04-b108-4204-8902-348029c72303"
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "sandcastle",
+  "project_id": "620c8d04-b108-4204-8902-348029c72303"
 }
