@@ -21,6 +21,10 @@ Environment="HOME=/home/mainframe"
 
 ExecStart=pnpm run sc
 
+# Allow up to 10m30s for graceful shutdown after SIGTERM (10 min for the
+# current iteration to complete + 30s buffer before systemd sends SIGKILL).
+TimeoutStopSec=630
+
 # Restart only on failure — the inner loop handles normal sleep/wake.
 Restart=on-failure
 RestartSec=10
