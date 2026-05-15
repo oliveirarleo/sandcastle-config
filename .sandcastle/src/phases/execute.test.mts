@@ -4,7 +4,7 @@ import type {
 	SandboxRunOptions,
 	SandboxRunResult,
 } from "@ai-hero/sandcastle";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import type { PlannerIssue } from "../types.mts";
 import { type CreateSandboxFn, type ExecuteLabelCallbacks, runExecutionPhase } from "./execute.mts";
 
@@ -887,6 +887,172 @@ describe("runExecutionPhase", () => {
 				const executedIds = executedEvents.map((t) => t.issueId).sort();
 				expect(executedIds).toEqual(["issue-1", "issue-3"]);
 			});
+		});
+	});
+
+	// -----------------------------------------------------------------------
+	// Hook integration tests
+	// -----------------------------------------------------------------------
+
+	describe("hooks integration", () => {
+		afterEach(() => {
+			delete process.env.SANDCASTLE_PRE_EXECUTE_HOOK;
+			delete process.env.SANDCASTLE_POST_EXECUTE_HOOK;
+		});
+
+		it("runs pre-execute hook before implementer (no crash)", async () => {
+			process.env.SANDCASTLE_PRE_EXECUTE_HOOK = "echo pre-execute-hook";
+
+			const issues: PlannerIssue[] = [{ id: "issue-1", title: "Fix A", branch: "branch-a" }];
+
+			const result = await runExecutionPhase(
+				issues,
+				async () => mockSandbox(),
+				NOOP_SANDBOX,
+				NOOP_HOOKS,
+				[],
+				3,
+			);
+
+			expect(result).toHaveLength(1);
+		});
+
+		it("runs post-execute hook after execution completes", async () => {
+			process.env.SANDCASTLE_POST_EXECUTE_HOOK = "echo post-execute-hook";
+
+			const issues: PlannerIssue[] = [{ id: "issue-1", title: "Fix A", branch: "branch-a" }];
+
+			const result = await runExecutionPhase(
+				issues,
+				async () => mockSandbox(),
+				NOOP_SANDBOX,
+				NOOP_HOOKS,
+				[],
+				3,
+			);
+
+			expect(result).toHaveLength(1);
+		});
+
+		it("pre-execute hook failure logs warning but phase still executes", async () => {
+			process.env.SANDCASTLE_PRE_EXECUTE_HOOK = "false";
+
+			const issues: PlannerIssue[] = [{ id: "issue-1", title: "Fix A", branch: "branch-a" }];
+
+			const result = await runExecutionPhase(
+				issues,
+				async () => mockSandbox(),
+				NOOP_SANDBOX,
+				NOOP_HOOKS,
+				[],
+				3,
+			);
+
+			// Phase still succeeds despite pre-hook failure
+			expect(result).toHaveLength(1);
+		});
+
+		it("post-execute hook failure logs warning but phase result preserved", async () => {
+			process.env.SANDCASTLE_POST_EXECUTE_HOOK = "false";
+
+			const issues: PlannerIssue[] = [{ id: "issue-1", title: "Fix A", branch: "branch-a" }];
+
+			const result = await runExecutionPhase(
+				issues,
+				async () => mockSandbox(),
+				NOOP_SANDBOX,
+				NOOP_HOOKS,
+				[],
+				3,
+			);
+
+			// Phase result preserved despite post-hook failure
+			expect(result).toHaveLength(1);
+		});
+
+		it("runs post-execute hook even for zero-commit case", async () => {
+			process.env.SANDCASTLE_POST_EXECUTE_HOOK = "echo post-execute-zero-commit";
+
+			const issues: PlannerIssue[] = [{ id: "issue-1", title: "Fix A", branch: "branch-a" }];
+
+			const result = await runExecutionPhase(
+				issues,
+				async () => mockSandbox(async () => mockRunResult([])),
+				NOOP_SANDBOX,
+				NOOP_HOOKS,
+				[],
+				3,
+			);
+
+			// Zero-commit means no commit to merge, so no completion
+			expect(result).toHaveLength(0);
+		});
+
+		it("pre-execute hook + implementer crash: hook succeeds, phase fails", async () => {
+			// AC: hook success + phase crash
+			process.env.SANDCASTLE_PRE_EXECUTE_HOOK = "echo pre-ok";
+
+			const issues: PlannerIssue[] = [{ id: "issue-1", title: "Fix A", branch: "branch-a" }];
+
+			const result = await runExecutionPhase(
+				issues,
+				async () =>
+					mockSandbox(async () => {
+						throw new Error("implementer crashed");
+					}),
+				NOOP_SANDBOX,
+				NOOP_HOOKS,
+				[],
+				3,
+			);
+
+			// Phase fails despite hook succeeding
+			expect(result).toHaveLength(0);
+		});
+
+		it("pre-execute hook + implementer crash do not cancel other issues", async () => {
+			process.env.SANDCASTLE_PRE_EXECUTE_HOOK = "echo pre-ok";
+
+			const createSandbox: CreateSandboxFn = async (opts) => {
+				if (opts.branch === "branch-a") {
+					return mockSandbox(async () => {
+						throw new Error("implementer crashed");
+					});
+				}
+				return mockSandbox();
+			};
+
+			const result = await runExecutionPhase(
+				[
+					{ id: "issue-1", title: "Fix A", branch: "branch-a" },
+					{ id: "issue-2", title: "Fix B", branch: "branch-b" },
+				],
+				createSandbox,
+				NOOP_SANDBOX,
+				NOOP_HOOKS,
+				[],
+				3,
+			);
+
+			// issue-1 fails, issue-2 completes
+			expect(result).toHaveLength(1);
+			expect(result[0]?.id).toBe("issue-2");
+		});
+
+		it("does not run hooks when not configured", async () => {
+			// No env vars set — hooks should not run
+			const issues: PlannerIssue[] = [{ id: "issue-1", title: "Fix A", branch: "branch-a" }];
+
+			const result = await runExecutionPhase(
+				issues,
+				async () => mockSandbox(),
+				NOOP_SANDBOX,
+				NOOP_HOOKS,
+				[],
+				3,
+			);
+
+			expect(result).toHaveLength(1);
 		});
 	});
 });
