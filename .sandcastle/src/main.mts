@@ -263,6 +263,7 @@ export async function main(): Promise<void> {
 					MAX_PARALLEL_TASKS,
 					logger,
 					labelCallbacks,
+					notifier,
 				);
 			} catch (err) {
 				logger.error({ err }, "Execute phase failed — continuing");

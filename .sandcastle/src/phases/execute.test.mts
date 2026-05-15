@@ -264,7 +264,7 @@ describe("runExecutionPhase", () => {
 		expect(calls).toEqual(["complete:issue-1"]);
 	});
 
-	it("does not call onExecuteComplete when implementer produces no commits", async () => {
+	it("calls onExecuteComplete when implementer produces no commits (zero-commit → executed)", async () => {
 		const calls: string[] = [];
 		const callbacks = {
 			onExecuteComplete: (issueId: string) => {
@@ -284,8 +284,33 @@ describe("runExecutionPhase", () => {
 			callbacks,
 		);
 
+		// Issue not returned as completed (nothing to merge) but label still advances
 		expect(result).toHaveLength(0);
-		expect(calls).toEqual([]);
+		expect(calls).toEqual(["complete:issue-1"]);
+	});
+
+	it("does not call onReviewStart when implementer produces no commits (zero-commit)", async () => {
+		const reviewCalls: string[] = [];
+		const callbacks = {
+			onReviewStart: (issueId: string) => {
+				reviewCalls.push(`review:${issueId}`);
+				return Promise.resolve();
+			},
+		};
+
+		await runExecutionPhase(
+			[{ id: "issue-1", title: "Fix A", branch: "branch-a" }],
+			async () => mockSandbox(async () => mockRunResult([])),
+			NOOP_SANDBOX,
+			NOOP_HOOKS,
+			[],
+			3,
+			undefined,
+			callbacks,
+		);
+
+		// No reviewer label should be set for zero-commit issues
+		expect(reviewCalls).toEqual([]);
 	});
 
 	// -----------------------------------------------------------------------
@@ -785,6 +810,82 @@ describe("runExecutionPhase", () => {
 				expect(result[0]?.id).toBe("issue-2");
 				// Branch-a should have triggered a revert
 				expect(crashes).toEqual(["issue-1:sandcastle:executing"]);
+			});
+
+			// -----------------------------------------------------------------------
+			// AC #7: Integration test — 3 issues in parallel, crash one mid-implementer,
+			// assert other 2 land at executed (with EXECUTED label callback)
+			// -----------------------------------------------------------------------
+
+			it("3 issues in parallel, one implementer crashes — other 2 reach executed label", async () => {
+				const labelTransitions: Array<{ issueId: string; label: string; event: string }> = [];
+				const callbacks: ExecuteLabelCallbacks = {
+					onImplementStart: async (issueId) => {
+						labelTransitions.push({
+							issueId,
+							label: "sandcastle:executing",
+							event: "implementStart",
+						});
+					},
+					onExecuteComplete: async (issueId) => {
+						labelTransitions.push({
+							issueId,
+							label: "sandcastle:executed",
+							event: "executeComplete",
+						});
+					},
+					onCrash: async (issueId, currentLabel) => {
+						labelTransitions.push({ issueId, label: currentLabel, event: "crash" });
+					},
+				};
+
+				const createSandbox: CreateSandboxFn = async (opts) => {
+					if (opts.branch === "branch-b") {
+						// issue-2 (branch-b) crashes during implementer
+						return mockSandbox(async (runOpts) => {
+							if (runOpts.name === "implementer") {
+								throw new Error("issue-2 implementer crashed");
+							}
+							return mockRunResult();
+						});
+					}
+					// All other issues complete normally
+					return mockSandbox();
+				};
+
+				const result = await runExecutionPhase(
+					[
+						{ id: "issue-1", title: "Fix A", branch: "branch-a" },
+						{ id: "issue-2", title: "Fix B", branch: "branch-b" },
+						{ id: "issue-3", title: "Fix C", branch: "branch-c" },
+					],
+					createSandbox,
+					NOOP_SANDBOX,
+					NOOP_HOOKS,
+					[],
+					3,
+					undefined,
+					callbacks,
+				);
+
+				// 2 issues should complete (issue-1 and issue-3)
+				expect(result).toHaveLength(2);
+				const completedIds = result.map((r) => r.id).sort();
+				expect(completedIds).toEqual(["issue-1", "issue-3"]);
+
+				// issue-2 should have crashed with implementing label
+				const crashEvents = labelTransitions.filter((t) => t.event === "crash");
+				expect(crashEvents).toHaveLength(1);
+				expect(crashEvents[0]?.issueId).toBe("issue-2");
+				expect(crashEvents[0]?.label).toBe("sandcastle:executing");
+
+				// issue-1 and issue-3 should both have reached executed
+				const executedEvents = labelTransitions.filter(
+					(t) => t.event === "executeComplete" && t.label === "sandcastle:executed",
+				);
+				expect(executedEvents).toHaveLength(2);
+				const executedIds = executedEvents.map((t) => t.issueId).sort();
+				expect(executedIds).toEqual(["issue-1", "issue-3"]);
 			});
 		});
 	});
