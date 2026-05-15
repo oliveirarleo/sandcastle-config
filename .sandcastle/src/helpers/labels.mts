@@ -7,9 +7,10 @@
  * determines where sandcastle resumes after a crash or manual stop.
  */
 
-import { exec } from "node:child_process";
-import { promisify } from "node:util";
+import { $ } from "zx";
 import type { BeadsIssue } from "../types.mts";
+
+$.verbose = false;
 
 export const sandcastleLabelPrefix = "sandcastle:";
 
@@ -22,7 +23,7 @@ export const MERGED = `${sandcastleLabelPrefix}merged`;
 /**
  * Build a shell command that adds a label to a bead issue.
  *
- * The command is designed to be evaluated via `zx.$` or `child_process.exec`.
+ * The command is designed to be evaluated via `zx.$`.
  * Issue IDs with special characters are double-quoted to prevent injection.
  */
 export function addLabelCmd(issueId: string, label: string): string {
@@ -187,10 +188,8 @@ export async function removeLabel(
 // Default implementations
 // ---------------------------------------------------------------------------
 
-const execAsync = promisify(exec);
-
 async function defaultExec(cmd: string): Promise<string> {
-	const { stdout } = await execAsync(cmd);
+	const { stdout } = await $`sh -c ${cmd}`.quiet();
 	return stdout.trim();
 }
 

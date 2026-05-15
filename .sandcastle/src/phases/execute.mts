@@ -1,5 +1,3 @@
-import { exec } from "node:child_process";
-import { promisify } from "node:util";
 import {
 	pi,
 	type SandboxHooks,
@@ -8,10 +6,11 @@ import {
 	type SandboxRunResult,
 } from "@ai-hero/sandcastle";
 import type { Logger } from "pino";
+import { $ } from "zx";
 import { runWithConcurrencyLimit } from "../helpers/concurrency.mts";
 import type { PlannerIssue } from "../types.mts";
 
-const execAsync = promisify(exec);
+$.verbose = false;
 
 // ---------------------------------------------------------------------------
 // Label callbacks
@@ -155,7 +154,7 @@ export async function runExecutionPhase(
 				// Skip if implementer was skipped (changes were already linted).
 				if (implementResult) {
 					try {
-						await execAsync("pnpm check");
+						await $`pnpm check`.quiet();
 					} catch (biomeErr) {
 						// Non-fatal: the reviewer may still catch style issues.
 						logger?.warn(
