@@ -6,34 +6,10 @@ import {
 	type SandboxRunResult,
 } from "@ai-hero/sandcastle";
 import type { Logger } from "pino";
-import { $ } from "zx";
 import { runWithConcurrencyLimit } from "../helpers/concurrency.mts";
-import { runPhaseHook } from "../helpers/hooks.mts";
+import { runHooks, type PhaseHooks } from "../helpers/phase-hooks.mts";
 import { EXECUTED, EXECUTING, REVIEWING } from "../helpers/labels.mts";
-import { formatErrorMessage, type Notifier } from "../helpers/notifier.mts";
 import type { PlannerIssue } from "../types.mts";
-
-$.verbose = false;
-
-// ---------------------------------------------------------------------------
-// Biome check
-// ---------------------------------------------------------------------------
-
-/**
- * Run Biome linter + formatter on the implementer's changes.
- * Failure is non-fatal — a warning is logged but execution continues.
- */
-async function defaultBiomeCheck(logger?: Logger, issueId?: string): Promise<void> {
-	if (process.env.VITEST) return;
-	try {
-		await $`pnpm check`.quiet();
-	} catch (biomeErr) {
-		logger?.warn(
-			{ err: biomeErr, issueId },
-			"Biome check failed — continuing to reviewer",
-		);
-	}
-}
 
 // ---------------------------------------------------------------------------
 // Label callbacks
@@ -91,29 +67,32 @@ export type CreateSandboxFn = (options: {
 }>;
 
 /**
- * Run implementer + reviewer sandbox pipelines for each planned issue.
+ * Create an executeOneIssue function with all dependencies captured.
  *
- * Each issue gets its own sandbox. The implementer runs first; if it produces
- * commits, a reviewer runs in the same sandbox. All issue pipelines run
- * concurrently (bounded by {@link maxParallelTasks}). Errors in one pipeline
- * don't cancel the others — rejected pipelines are logged and skipped.
- *
- * @returns The subset of issues that produced at least one commit.
+ * This factory allows callers to run a single issue's execute+review pipeline
+ * independently, e.g., as a producer in an Effect.ts Queue pipeline.
  */
-export async function runExecutionPhase(
-	issues: PlannerIssue[],
-	createSandbox: CreateSandboxFn,
-	sandboxProvider: SandboxProvider,
-	hooks: SandboxHooks,
-	copyToWorktree: string[],
-	maxParallelTasks: number,
-	logger?: Logger,
-	labelCallbacks?: ExecuteLabelCallbacks,
-	notifier?: Notifier,
-): Promise<PlannerIssue[]> {
-	async function executeOneIssue(rawIssue: PlannerIssue): Promise<SandboxRunResult> {
+export function createExecuteOneIssue(deps: {
+	createSandbox: CreateSandboxFn;
+	sandboxProvider: SandboxProvider;
+	sandboxHooks: SandboxHooks;
+	copyToWorktree: string[];
+	logger?: Logger;
+	labelCallbacks?: ExecuteLabelCallbacks;
+	phaseHooks?: PhaseHooks;
+}): (rawIssue: PlannerIssue) => Promise<SandboxRunResult> {
+	const {
+		createSandbox,
+		sandboxProvider,
+		sandboxHooks,
+		copyToWorktree,
+		logger,
+		labelCallbacks,
+		phaseHooks,
+	} = deps;
+
+	return async (rawIssue: PlannerIssue): Promise<SandboxRunResult> => {
 		// Resolve stale sessions before creating the sandbox.
-		// We mutate a local copy so the original object is unaffected.
 		let issue = rawIssue;
 
 		if (issue.implementSession) {
@@ -141,7 +120,7 @@ export async function runExecutionPhase(
 		const sandbox = await createSandbox({
 			branch: issue.branch,
 			sandbox: sandboxProvider,
-			hooks,
+			hooks: sandboxHooks,
 			copyToWorktree,
 		});
 
@@ -149,8 +128,8 @@ export async function runExecutionPhase(
 		let implementResult: SandboxRunResult | undefined;
 
 		try {
-			// ---- Pre-execute hook (non-fatal) ----
-			await runPhaseHook(issue.id, "pre_execute", logger);
+			// ---- Pre-execute hooks (non-fatal) ----
+			await runHooks(phaseHooks?.onPreExecute, { issueId: issue.id, logger });
 
 			// ---- Implementer ----
 			if (issue.skipImplementer) {
@@ -175,21 +154,19 @@ export async function runExecutionPhase(
 				// Capture implementer session
 				const implementSessionId = implementResult.iterations[0]?.sessionId;
 				await labelCallbacks?.onImplementSession?.(issue.id, implementSessionId);
+
+				// ---- Post-implementer hooks (non-fatal) ----
+				await runHooks(phaseHooks?.onPostImplementer, { issueId: issue.id, logger });
 			}
 
 			// ---- Reviewer (only if implementer produced commits or was skipped) ----
-			// When skipImplementer, we assume prior commits exist (the issue was already
-			// mid-review). If there are truly no commits, the merge phase will skip this issue.
 			const hasCommits = issue.skipImplementer || (implementResult?.commits.length ?? 0) > 0;
 
 			let reviewResult: SandboxRunResult | undefined;
 
 			if (hasCommits) {
-				// Run Biome linter + formatter on the implementer's changes.
-				// Skip if implementer was skipped (changes were already linted).
-				if (implementResult) {
-					await defaultBiomeCheck(logger, issue.id);
-				}
+				// ---- Pre-reviewer hooks (non-fatal) ----
+				await runHooks(phaseHooks?.onPreReviewer, { issueId: issue.id, logger });
 
 				await labelCallbacks?.onReviewStart?.(issue.id);
 				lastPhaseLabel = REVIEWING;
@@ -206,12 +183,14 @@ export async function runExecutionPhase(
 				// Capture reviewer session
 				const reviewSessionId = reviewResult.iterations[0]?.sessionId;
 				await labelCallbacks?.onReviewSession?.(issue.id, reviewSessionId);
+
+				// ---- Post-reviewer hooks (non-fatal) ----
+				await runHooks(phaseHooks?.onPostReviewer, { issueId: issue.id, logger });
 			}
 
-			// Both paths: mark as executed and run post-execute hook
+			// Both paths: mark as executed
 			await labelCallbacks?.onExecuteComplete?.(issue.id);
 			lastPhaseLabel = EXECUTED;
-			await runPhaseHook(issue.id, "post_execute", logger);
 
 			if (hasCommits && reviewResult) {
 				const implementCommits = implementResult?.commits ?? [];
@@ -221,10 +200,6 @@ export async function runExecutionPhase(
 				};
 			}
 
-			// implementResult is always defined at this point because:
-			// - if skipImplementer=true, hasCommits evaluates to true and we return early above
-			// - if skipImplementer=false, implementResult was set by sandbox.run()
-			// The guard exists only for TypeScript narrowing — at runtime it's never reached.
 			/* v8 ignore next 3 */
 			if (!implementResult) {
 				return { stdout: "", commits: [], iterations: [], logFilePath: undefined };
@@ -232,13 +207,15 @@ export async function runExecutionPhase(
 
 			return implementResult;
 		} catch (err) {
+			// ---- Post-reviewer hooks with error (non-fatal) ----
+			await runHooks(phaseHooks?.onPostReviewer, { issueId: issue.id, logger, error: err });
+
 			// Revert phase label on crash so the issue reappears at the right
 			// point on next sandcastle startup.
 			if (lastPhaseLabel) {
 				try {
 					await labelCallbacks?.onCrash?.(issue.id, lastPhaseLabel);
 				} catch (revertErr) {
-					// Non-fatal: don't mask the original error
 					logger?.error(
 						{ err: revertErr, issueId: issue.id },
 						"Label revert callback failed — continuing with original error",
@@ -249,7 +226,39 @@ export async function runExecutionPhase(
 		} finally {
 			await sandbox.close();
 		}
-	}
+	};
+}
+
+/**
+ * Run implementer + reviewer sandbox pipelines for each planned issue.
+ *
+ * Each issue gets its own sandbox. The implementer runs first; if it produces
+ * commits, a reviewer runs in the same sandbox. All issue pipelines run
+ * concurrently (bounded by {@link maxParallelTasks}). Errors in one pipeline
+ * don't cancel the others — rejected pipelines are logged and skipped.
+ *
+ * @returns The subset of issues that produced at least one commit.
+ */
+export async function runExecutionPhase(
+	issues: PlannerIssue[],
+	createSandbox: CreateSandboxFn,
+	sandboxProvider: SandboxProvider,
+	sandboxHooks: SandboxHooks,
+	copyToWorktree: string[],
+	maxParallelTasks: number,
+	logger?: Logger,
+	labelCallbacks?: ExecuteLabelCallbacks,
+	phaseHooks?: PhaseHooks,
+): Promise<PlannerIssue[]> {
+	const executeOneIssue = createExecuteOneIssue({
+		createSandbox,
+		sandboxProvider,
+		sandboxHooks,
+		copyToWorktree,
+		logger,
+		labelCallbacks,
+		phaseHooks,
+	});
 
 	const settled = await runWithConcurrencyLimit(issues, maxParallelTasks, executeOneIssue);
 
@@ -258,14 +267,6 @@ export async function runExecutionPhase(
 			const issue = issues[i];
 			if (issue) {
 				logger?.error({ err: outcome.reason }, `✗ ${issue.id} (${issue.branch}) failed`);
-				notifier
-					?.send({
-						level: "error",
-						title: `Execute failed: ${issue.id}`,
-						message: `Issue ${issue.id} (${issue.branch}) failed during execution: ${formatErrorMessage(outcome.reason)}`,
-						tags: ["execute", "sandcastle", "error"],
-					})
-					.catch(() => {});
 			}
 		}
 	}

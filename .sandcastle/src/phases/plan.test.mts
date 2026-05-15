@@ -1,5 +1,6 @@
 import type { RunOptions, RunResult, SandboxHooks, SandboxProvider } from "@ai-hero/sandcastle";
 import { describe, expect, it } from "vitest";
+import { type PhaseHook, type PhaseHookContext } from "../helpers/phase-hooks.mts";
 import { extractPlanJson, runPlanner } from "./plan.mts";
 
 const validPlan = JSON.stringify({
@@ -128,6 +129,90 @@ ${validPlan}
 </plan>`;
 		const combinedJson = JSON.parse(extractPlanJson(combined));
 		expect(combinedJson.issues).toHaveLength(2);
+	});
+});
+
+describe("runPlanner with hooks", () => {
+	it("calls onPrePlan hooks before planner agent runs", async () => {
+		const calls: string[] = [];
+		const onPrePlan: PhaseHook = async () => {
+			calls.push("prePlan");
+		};
+
+		const runCalls: RunOptions[] = [];
+		const runSandbox = (opts: RunOptions): Promise<RunResult> => {
+			runCalls.push(opts);
+			return mockRun(`<plan>${validPlan}</plan>`);
+		};
+
+		await runPlanner(runSandbox, NOOP_SANDBOX, NOOP_HOOKS, undefined, undefined, {
+			onPrePlan: [onPrePlan],
+		});
+
+		expect(calls).toEqual(["prePlan"]);
+		expect(runCalls).toHaveLength(1);
+	});
+
+	it("calls onPostPlan hooks after planner completes, with issues array", async () => {
+		const capturedIssues: Array<{ count: number }> = [];
+		const onPostPlan: PhaseHook = async ({ issues }) => {
+			capturedIssues.push({ count: issues?.length ?? 0 });
+		};
+
+		const result = await runPlanner(
+			() => mockRun(`<plan>${validPlan}</plan>`),
+			NOOP_SANDBOX,
+			NOOP_HOOKS,
+			undefined,
+			undefined,
+			{ onPostPlan: [onPostPlan] },
+		);
+
+		expect(result).toHaveLength(2);
+		expect(capturedIssues).toEqual([{ count: 2 }]);
+	});
+
+	it("calls onPostPlan even for empty plan", async () => {
+		let called = false;
+		const onPostPlan: PhaseHook = async () => {
+			called = true;
+		};
+
+		const emptyPlan = JSON.stringify({ issues: [] });
+		await runPlanner(
+			() => mockRun(`<plan>${emptyPlan}</plan>`),
+			NOOP_SANDBOX,
+			NOOP_HOOKS,
+			undefined,
+			undefined,
+			{ onPostPlan: [onPostPlan] },
+		);
+
+		expect(called).toBe(true);
+	});
+
+	it("runs multiple hooks in onPrePlan and onPostPlan", async () => {
+		const order: string[] = [];
+
+		await runPlanner(
+			() => mockRun(`<plan>${validPlan}</plan>`),
+			NOOP_SANDBOX,
+			NOOP_HOOKS,
+			undefined,
+			undefined,
+			{
+				onPrePlan: [
+					async () => { order.push("pre1"); },
+					async () => { order.push("pre2"); },
+				],
+				onPostPlan: [
+					async () => { order.push("post1"); },
+					async () => { order.push("post2"); },
+				],
+			},
+		);
+
+		expect(order).toEqual(["pre1", "pre2", "post1", "post2"]);
 	});
 });
 

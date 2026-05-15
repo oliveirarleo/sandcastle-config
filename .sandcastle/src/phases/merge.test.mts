@@ -1,17 +1,13 @@
 import type { RunOptions, RunResult, SandboxHooks, SandboxProvider } from "@ai-hero/sandcastle";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { MERGED } from "../helpers/labels.mts";
-import type { Notifier } from "../helpers/notifier.mts";
+import type { PhaseHook, PhaseHooks } from "../helpers/phase-hooks.mts";
 import type { PlannerIssue } from "../types.mts";
 import { isBranchMerged, isIssueClosed, runMergePhase, verifyMergedIssues } from "./merge.mts";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function mockNotifier(): Notifier & { send: ReturnType<typeof vi.fn> } {
-	return { send: vi.fn().mockResolvedValue(undefined) };
-}
 
 const NOOP_SANDBOX = {} as unknown as SandboxProvider;
 const NOOP_HOOKS = {} as unknown as SandboxHooks;
@@ -30,7 +26,7 @@ describe("runMergePhase", () => {
 			{ branch: "branch-b", id: "issue-2", title: "Fix B" },
 		];
 
-		await runMergePhase(mockRunSandbox, issues, NOOP_SANDBOX, NOOP_HOOKS, undefined);
+		await runMergePhase(mockRunSandbox, issues, NOOP_SANDBOX, NOOP_HOOKS);
 
 		expect(calls).toHaveLength(2);
 		expect(calls[0]?.promptArgs?.BRANCHES).toBe("- branch-a");
@@ -60,7 +56,7 @@ describe("runMergePhase", () => {
 			{ branch: "branch-c", id: "issue-3", title: "Fix C" },
 		];
 
-		await runMergePhase(mockRunWithFailure, threeIssues, NOOP_SANDBOX, NOOP_HOOKS, undefined);
+		await runMergePhase(mockRunWithFailure, threeIssues, NOOP_SANDBOX, NOOP_HOOKS);
 
 		expect(isolatedCalls).toHaveLength(3);
 		expect(isolatedCalls[0]).toBe("- branch-a");
@@ -83,7 +79,7 @@ describe("runMergePhase", () => {
 
 		// Should not throw
 		await expect(
-			runMergePhase(mockAlwaysFail, issues, NOOP_SANDBOX, NOOP_HOOKS, undefined),
+			runMergePhase(mockAlwaysFail, issues, NOOP_SANDBOX, NOOP_HOOKS),
 		).resolves.toBeUndefined();
 
 		expect(failingCalls).toHaveLength(2);
@@ -100,72 +96,53 @@ describe("runMergePhase", () => {
 			return { stdout: "", commits: [], iterations: [], branch: "main" };
 		}
 
-		await runMergePhase(
-			mockRunSandbox,
-			[{ branch: "branch-a", id: "issue-1", title: "Fix A" }],
-			NOOP_SANDBOX,
-			NOOP_HOOKS,
-			undefined,
-			onMergeComplete,
-		);
-
-		expect(completed).toEqual(["issue-1"]);
-	});
-
-	it("does not call onMergeComplete when merge fails", async () => {
-		const completed: string[] = [];
-		const onMergeComplete = (issueId: string) => {
-			completed.push(issueId);
-			return Promise.resolve();
-		};
-
-		async function mockRunSandbox(_opts: RunOptions): Promise<RunResult> {
-			throw new Error("merge conflict");
-		}
-
-		await runMergePhase(
-			mockRunSandbox,
-			[{ branch: "branch-a", id: "issue-1", title: "Fix A" }],
-			NOOP_SANDBOX,
-			NOOP_HOOKS,
-			undefined,
-			onMergeComplete,
-		);
-
-		expect(completed).toEqual([]);
 	});
 });
 
-describe("notifier integration", () => {
-	it("sends info notification after successful merge", async () => {
-		const notif = mockNotifier();
+// -----------------------------------------------------------------------
+// Function-based hook tests
+// -----------------------------------------------------------------------
 
-		async function mockRunSucceeded(_opts: RunOptions): Promise<RunResult> {
+describe("runMergePhase hooks", () => {
+	it("calls onPreMerge before merge action", async () => {
+		const order: string[] = [];
+		const hooks: PhaseHooks = {
+			onPreMerge: [
+				async ({ issueId, branch }) => {
+					order.push(`pre:${issueId}:${branch}`);
+				},
+			],
+		};
+
+		const runCalls: string[] = [];
+		async function mockRunSandbox(opts: RunOptions): Promise<RunResult> {
+			runCalls.push(opts.promptArgs?.BRANCHES as string);
 			return { stdout: "", commits: [], iterations: [], branch: "main" };
 		}
 
 		await runMergePhase(
-			mockRunSucceeded,
+			mockRunSandbox,
 			[{ branch: "branch-a", id: "issue-1", title: "Fix A" }],
 			NOOP_SANDBOX,
 			NOOP_HOOKS,
 			undefined,
-			undefined,
-			notif,
+			hooks,
 		);
 
-		expect(notif.send).toHaveBeenCalledTimes(1);
-		expect(notif.send).toHaveBeenCalledWith(
-			expect.objectContaining({
-				level: "info",
-				title: expect.stringContaining("branch-a"),
-				tags: ["merge", "sandcastle"],
-			}),
-		);
+		// Hook ran before merge
+		expect(order).toEqual(["pre:issue-1:branch-a"]);
+		expect(runCalls).toHaveLength(1);
 	});
 
-	it("sends warn notification on merge failure", async () => {
-		const notif = mockNotifier();
+	it("calls onPostMerge with error when merge fails", async () => {
+		const errors: Array<{ id?: string; msg?: string }> = [];
+		const hooks: PhaseHooks = {
+			onPostMerge: [
+				async ({ issueId, error }) => {
+					errors.push({ id: issueId, msg: (error as Error)?.message });
+				},
+			],
+		};
 
 		async function mockRunFails(_opts: RunOptions): Promise<RunResult> {
 			throw new Error("merge conflict");
@@ -177,40 +154,101 @@ describe("notifier integration", () => {
 			NOOP_SANDBOX,
 			NOOP_HOOKS,
 			undefined,
-			undefined,
-			notif,
+			hooks,
 		);
 
-		expect(notif.send).toHaveBeenCalledTimes(1);
-		expect(notif.send).toHaveBeenCalledWith(
-			expect.objectContaining({
-				level: "warn",
-				title: expect.stringContaining("branch-b"),
-				tags: ["merge", "sandcastle", "error"],
-			}),
-		);
+		expect(errors).toHaveLength(1);
+		expect(errors[0]?.id).toBe("issue-2");
+		expect(errors[0]?.msg).toContain("merge conflict");
 	});
 
-	it("notifier failure does not crash merge phase", async () => {
-		const notif: Notifier = {
-			send: vi.fn().mockRejectedValue(new Error("notifier crash")),
+	it("calls onPostMerge without error when merge succeeds", async () => {
+		const results: Array<{ id: string; hasError: boolean }> = [];
+		const hooks: PhaseHooks = {
+			onPostMerge: [
+				async ({ issueId, error }) => {
+					results.push({ id: issueId ?? "unknown", hasError: error !== undefined });
+				},
+			],
 		};
 
 		async function mockRunSucceeded(_opts: RunOptions): Promise<RunResult> {
 			return { stdout: "", commits: [], iterations: [], branch: "main" };
 		}
 
-		await expect(
-			runMergePhase(
-				mockRunSucceeded,
-				[{ branch: "branch-c", id: "issue-3", title: "Fix C" }],
-				NOOP_SANDBOX,
-				NOOP_HOOKS,
-				undefined,
-				undefined,
-				notif,
-			),
-		).resolves.toBeUndefined();
+		await runMergePhase(
+			mockRunSucceeded,
+			[{ branch: "branch-a", id: "issue-1", title: "Fix A" }],
+			NOOP_SANDBOX,
+			NOOP_HOOKS,
+			undefined,
+			hooks,
+		);
+
+		expect(results).toEqual([{ id: "issue-1", hasError: false }]);
+	});
+
+	it("onPostMerge runs for all issues even when some fail", async () => {
+		const postMergeCalls: string[] = [];
+		const hooks: PhaseHooks = {
+			onPostMerge: [
+				async ({ issueId, error }) => {
+					postMergeCalls.push(`${issueId}:${error ? "err" : "ok"}`);
+				},
+			],
+		};
+
+		async function mockRunSandbox(opts: RunOptions): Promise<RunResult> {
+			if (opts.promptArgs?.BRANCHES === "- branch-b") {
+				throw new Error("merge conflict on branch-b");
+			}
+			return { stdout: "", commits: [], iterations: [], branch: "main" };
+		}
+
+		await runMergePhase(
+			mockRunSandbox,
+			[
+				{ branch: "branch-a", id: "issue-1", title: "Fix A" },
+				{ branch: "branch-b", id: "issue-2", title: "Fix B" },
+				{ branch: "branch-c", id: "issue-3", title: "Fix C" },
+			],
+			NOOP_SANDBOX,
+			NOOP_HOOKS,
+			undefined,
+			hooks,
+		);
+
+		// All 3 issues should trigger onPostMerge (2 success, 1 error)
+		expect(postMergeCalls).toEqual(["issue-1:ok", "issue-2:err", "issue-3:ok"]);
+	});
+
+	it("runs multiple hooks in onPostMerge", async () => {
+		const order: string[] = [];
+		const hooks: PhaseHooks = {
+			onPostMerge: [
+				async () => {
+					order.push("post-merge-a");
+				},
+				async () => {
+					order.push("post-merge-b");
+				},
+			],
+		};
+
+		async function mockRunSucceeded(_opts: RunOptions): Promise<RunResult> {
+			return { stdout: "", commits: [], iterations: [], branch: "main" };
+		}
+
+		await runMergePhase(
+			mockRunSucceeded,
+			[{ branch: "branch-a", id: "issue-1", title: "Fix A" }],
+			NOOP_SANDBOX,
+			NOOP_HOOKS,
+			undefined,
+			hooks,
+		);
+
+		expect(order).toEqual(["post-merge-a", "post-merge-b"]);
 	});
 });
 
@@ -427,121 +465,3 @@ describe("isBranchMerged", () => {
 	});
 });
 
-// -----------------------------------------------------------------------
-// Hook integration tests
-// -----------------------------------------------------------------------
-
-describe("runMergePhase hooks", () => {
-	afterEach(() => {
-		delete process.env.SANDCASTLE_PRE_MERGE_HOOK;
-		delete process.env.SANDCASTLE_POST_MERGE_HOOK;
-	});
-
-	it("runs pre-merge hook before merge action", async () => {
-		process.env.SANDCASTLE_PRE_MERGE_HOOK = "echo pre-merge-hook";
-
-		async function mockRunSandbox(_opts: RunOptions): Promise<RunResult> {
-			return { stdout: "", commits: [], iterations: [], branch: "main" };
-		}
-
-		await expect(
-			runMergePhase(
-				mockRunSandbox,
-				[{ branch: "branch-a", id: "issue-1", title: "Fix A" }],
-				NOOP_SANDBOX,
-				NOOP_HOOKS,
-				undefined,
-			),
-		).resolves.toBeUndefined();
-	});
-
-	it("runs post-merge hook after merge succeeds", async () => {
-		process.env.SANDCASTLE_POST_MERGE_HOOK = "echo post-merge-hook";
-
-		async function mockRunSandbox(_opts: RunOptions): Promise<RunResult> {
-			return { stdout: "", commits: [], iterations: [], branch: "main" };
-		}
-
-		await expect(
-			runMergePhase(
-				mockRunSandbox,
-				[{ branch: "branch-a", id: "issue-1", title: "Fix A" }],
-				NOOP_SANDBOX,
-				NOOP_HOOKS,
-				undefined,
-			),
-		).resolves.toBeUndefined();
-	});
-
-	it("pre-merge hook failure logs warning but merge still executes", async () => {
-		process.env.SANDCASTLE_PRE_MERGE_HOOK = "false";
-
-		async function mockRunSandbox(_opts: RunOptions): Promise<RunResult> {
-			return { stdout: "", commits: [], iterations: [], branch: "main" };
-		}
-
-		await expect(
-			runMergePhase(
-				mockRunSandbox,
-				[{ branch: "branch-a", id: "issue-1", title: "Fix A" }],
-				NOOP_SANDBOX,
-				NOOP_HOOKS,
-				undefined,
-			),
-		).resolves.toBeUndefined();
-	});
-
-	it("post-merge hook failure logs warning but merge result preserved", async () => {
-		process.env.SANDCASTLE_POST_MERGE_HOOK = "false";
-
-		async function mockRunSandbox(_opts: RunOptions): Promise<RunResult> {
-			return { stdout: "", commits: [], iterations: [], branch: "main" };
-		}
-
-		await expect(
-			runMergePhase(
-				mockRunSandbox,
-				[{ branch: "branch-a", id: "issue-1", title: "Fix A" }],
-				NOOP_SANDBOX,
-				NOOP_HOOKS,
-				undefined,
-			),
-		).resolves.toBeUndefined();
-	});
-
-	it("pre-merge hook + merge crash: hook succeeds, merge fails", async () => {
-		// AC: hook success + phase crash
-		process.env.SANDCASTLE_PRE_MERGE_HOOK = "echo pre-ok";
-
-		async function mockRunSandbox(_opts: RunOptions): Promise<RunResult> {
-			throw new Error("merge conflict");
-		}
-
-		// Should not throw — merge phase isolates per-branch errors
-		await expect(
-			runMergePhase(
-				mockRunSandbox,
-				[{ branch: "branch-a", id: "issue-1", title: "Fix A" }],
-				NOOP_SANDBOX,
-				NOOP_HOOKS,
-				undefined,
-			),
-		).resolves.toBeUndefined();
-	});
-
-	it("does not run hooks when not configured", async () => {
-		async function mockRunSandbox(_opts: RunOptions): Promise<RunResult> {
-			return { stdout: "", commits: [], iterations: [], branch: "main" };
-		}
-
-		await expect(
-			runMergePhase(
-				mockRunSandbox,
-				[{ branch: "branch-a", id: "issue-1", title: "Fix A" }],
-				NOOP_SANDBOX,
-				NOOP_HOOKS,
-				undefined,
-			),
-		).resolves.toBeUndefined();
-	});
-});

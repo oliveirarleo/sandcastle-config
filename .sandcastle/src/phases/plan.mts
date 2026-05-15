@@ -1,5 +1,6 @@
 import { pi, type SandboxHooks, type SandboxProvider } from "@ai-hero/sandcastle";
 import type { Logger } from "pino";
+import { runHooks, type PhaseHooks } from "../helpers/phase-hooks.mts";
 import { type PlannerIssue, PlannerOutputSchema, type RunSandbox } from "../types.mts";
 
 /**
@@ -46,7 +47,10 @@ export async function runPlanner(
 	hooks: SandboxHooks,
 	logger?: Logger,
 	onPlanComplete?: (issues: PlannerIssue[]) => Promise<void>,
+	phaseHooks?: PhaseHooks,
 ): Promise<PlannerIssue[]> {
+	await runHooks(phaseHooks?.onPrePlan, { logger });
+
 	logger?.debug("Running planner sandbox...");
 
 	const plan = await runSandbox({
@@ -62,6 +66,7 @@ export async function runPlanner(
 	const { issues } = PlannerOutputSchema.parse(JSON.parse(json));
 
 	await onPlanComplete?.(issues);
+	await runHooks(phaseHooks?.onPostPlan, { issues, logger });
 
 	logger?.info({ count: issues.length }, "Planning complete");
 	for (const issue of issues) {

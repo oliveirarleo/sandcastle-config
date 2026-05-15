@@ -4,7 +4,8 @@ import type {
 	SandboxRunOptions,
 	SandboxRunResult,
 } from "@ai-hero/sandcastle";
-import { afterEach, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
+import { type PhaseHook, type PhaseHooks } from "../helpers/phase-hooks.mts";
 import type { PlannerIssue } from "../types.mts";
 import { type CreateSandboxFn, type ExecuteLabelCallbacks, runExecutionPhase } from "./execute.mts";
 
@@ -891,168 +892,239 @@ describe("runExecutionPhase", () => {
 	});
 
 	// -----------------------------------------------------------------------
-	// Hook integration tests
+	// Function-based hook tests
 	// -----------------------------------------------------------------------
 
-	describe("hooks integration", () => {
-		afterEach(() => {
-			delete process.env.SANDCASTLE_PRE_EXECUTE_HOOK;
-			delete process.env.SANDCASTLE_POST_EXECUTE_HOOK;
-		});
-
-		it("runs pre-execute hook before implementer (no crash)", async () => {
-			process.env.SANDCASTLE_PRE_EXECUTE_HOOK = "echo pre-execute-hook";
-
-			const issues: PlannerIssue[] = [{ id: "issue-1", title: "Fix A", branch: "branch-a" }];
-
-			const result = await runExecutionPhase(
-				issues,
-				async () => mockSandbox(),
-				NOOP_SANDBOX,
-				NOOP_HOOKS,
-				[],
-				3,
-			);
-
-			expect(result).toHaveLength(1);
-		});
-
-		it("runs post-execute hook after execution completes", async () => {
-			process.env.SANDCASTLE_POST_EXECUTE_HOOK = "echo post-execute-hook";
-
-			const issues: PlannerIssue[] = [{ id: "issue-1", title: "Fix A", branch: "branch-a" }];
-
-			const result = await runExecutionPhase(
-				issues,
-				async () => mockSandbox(),
-				NOOP_SANDBOX,
-				NOOP_HOOKS,
-				[],
-				3,
-			);
-
-			expect(result).toHaveLength(1);
-		});
-
-		it("pre-execute hook failure logs warning but phase still executes", async () => {
-			process.env.SANDCASTLE_PRE_EXECUTE_HOOK = "false";
-
-			const issues: PlannerIssue[] = [{ id: "issue-1", title: "Fix A", branch: "branch-a" }];
-
-			const result = await runExecutionPhase(
-				issues,
-				async () => mockSandbox(),
-				NOOP_SANDBOX,
-				NOOP_HOOKS,
-				[],
-				3,
-			);
-
-			// Phase still succeeds despite pre-hook failure
-			expect(result).toHaveLength(1);
-		});
-
-		it("post-execute hook failure logs warning but phase result preserved", async () => {
-			process.env.SANDCASTLE_POST_EXECUTE_HOOK = "false";
-
-			const issues: PlannerIssue[] = [{ id: "issue-1", title: "Fix A", branch: "branch-a" }];
-
-			const result = await runExecutionPhase(
-				issues,
-				async () => mockSandbox(),
-				NOOP_SANDBOX,
-				NOOP_HOOKS,
-				[],
-				3,
-			);
-
-			// Phase result preserved despite post-hook failure
-			expect(result).toHaveLength(1);
-		});
-
-		it("runs post-execute hook even for zero-commit case", async () => {
-			process.env.SANDCASTLE_POST_EXECUTE_HOOK = "echo post-execute-zero-commit";
-
-			const issues: PlannerIssue[] = [{ id: "issue-1", title: "Fix A", branch: "branch-a" }];
-
-			const result = await runExecutionPhase(
-				issues,
-				async () => mockSandbox(async () => mockRunResult([])),
-				NOOP_SANDBOX,
-				NOOP_HOOKS,
-				[],
-				3,
-			);
-
-			// Zero-commit means no commit to merge, so no completion
-			expect(result).toHaveLength(0);
-		});
-
-		it("pre-execute hook + implementer crash: hook succeeds, phase fails", async () => {
-			// AC: hook success + phase crash
-			process.env.SANDCASTLE_PRE_EXECUTE_HOOK = "echo pre-ok";
-
-			const issues: PlannerIssue[] = [{ id: "issue-1", title: "Fix A", branch: "branch-a" }];
-
-			const result = await runExecutionPhase(
-				issues,
-				async () =>
-					mockSandbox(async () => {
-						throw new Error("implementer crashed");
-					}),
-				NOOP_SANDBOX,
-				NOOP_HOOKS,
-				[],
-				3,
-			);
-
-			// Phase fails despite hook succeeding
-			expect(result).toHaveLength(0);
-		});
-
-		it("pre-execute hook + implementer crash do not cancel other issues", async () => {
-			process.env.SANDCASTLE_PRE_EXECUTE_HOOK = "echo pre-ok";
-
-			const createSandbox: CreateSandboxFn = async (opts) => {
-				if (opts.branch === "branch-a") {
-					return mockSandbox(async () => {
-						throw new Error("implementer crashed");
-					});
-				}
-				return mockSandbox();
+	describe("hooks", () => {
+		it("calls onPreExecute before implementer", async () => {
+			const order: string[] = [];
+			const hooks: PhaseHooks = {
+				onPreExecute: [
+					async ({ issueId }) => {
+						order.push(`pre:${issueId}`);
+					},
+				],
 			};
+
+			const runNames: string[] = [];
+			const createSandbox: CreateSandboxFn = async () =>
+				mockSandbox(async (opts) => {
+					runNames.push(opts.name ?? "unknown");
+					return mockRunResult([{ sha: "abc" }]);
+				});
+
+			await runExecutionPhase(
+				[{ id: "issue-1", title: "Fix A", branch: "branch-a" }],
+				createSandbox,
+				NOOP_SANDBOX,
+				NOOP_HOOKS,
+				[],
+				3,
+				undefined,
+				undefined,
+				hooks,
+			);
+
+			expect(order[0]).toBe("pre:issue-1");
+			// Hook ran before implementer
+			expect(runNames[0]).toBe("implementer");
+		});
+
+		it("calls onPostImplementer after implementer", async () => {
+			const order: string[] = [];
+			const hooks: PhaseHooks = {
+				onPostImplementer: [
+					async ({ issueId }) => {
+						order.push(`post-impl:${issueId}`);
+					},
+				],
+			};
+
+			const runNames: string[] = [];
+			const createSandbox: CreateSandboxFn = async () =>
+				mockSandbox(async (opts) => {
+					runNames.push(opts.name ?? "unknown");
+					return mockRunResult(opts.name === "implementer" ? [{ sha: "abc" }] : []);
+				});
+
+			await runExecutionPhase(
+				[{ id: "issue-1", title: "Fix A", branch: "branch-a" }],
+				createSandbox,
+				NOOP_SANDBOX,
+				NOOP_HOOKS,
+				[],
+				3,
+				undefined,
+				undefined,
+				hooks,
+			);
+
+			// Hook ran after implementer (before reviewer)
+			expect(order).toEqual(["post-impl:issue-1"]);
+			expect(runNames[0]).toBe("implementer");
+		});
+
+		it("calls onPreReviewer before reviewer", async () => {
+			const order: string[] = [];
+			const hooks: PhaseHooks = {
+				onPreReviewer: [
+					async ({ issueId }) => {
+						order.push(`pre-review:${issueId}`);
+					},
+				],
+			};
+
+			const runNames: string[] = [];
+			const createSandbox: CreateSandboxFn = async () =>
+				mockSandbox(async (opts) => {
+					runNames.push(opts.name ?? "unknown");
+					return mockRunResult(opts.name === "implementer" ? [{ sha: "abc" }] : []);
+				});
+
+			await runExecutionPhase(
+				[{ id: "issue-1", title: "Fix A", branch: "branch-a" }],
+				createSandbox,
+				NOOP_SANDBOX,
+				NOOP_HOOKS,
+				[],
+				3,
+				undefined,
+				undefined,
+				hooks,
+			);
+
+			expect(order).toEqual(["pre-review:issue-1"]);
+			// Reviewer should run after the hook
+			expect(runNames).toContain("reviewer");
+		});
+
+		it("calls onPostReviewer after reviewer (success path)", async () => {
+			const order: string[] = [];
+			const hooks: PhaseHooks = {
+				onPostReviewer: [
+					async ({ issueId, error }) => {
+						order.push(`post-review:${issueId}:${error ? "err" : "ok"}`);
+					},
+				],
+			};
+
+			const createSandbox: CreateSandboxFn = async () => mockSandbox();
+
+			await runExecutionPhase(
+				[{ id: "issue-1", title: "Fix A", branch: "branch-a" }],
+				createSandbox,
+				NOOP_SANDBOX,
+				NOOP_HOOKS,
+				[],
+				3,
+				undefined,
+				undefined,
+				hooks,
+			);
+
+			expect(order).toEqual(["post-review:issue-1:ok"]);
+		});
+
+		it("calls onPostReviewer with error when implementer crashes", async () => {
+			const errors: Array<{ id?: string; msg?: string }> = [];
+			const hooks: PhaseHooks = {
+				onPostReviewer: [
+					async ({ error, issueId }) => {
+						errors.push({ id: issueId, msg: (error as Error)?.message });
+					},
+				],
+			};
+
+			const createSandbox: CreateSandboxFn = async () =>
+				mockSandbox(async () => {
+					throw new Error("implementer crashed");
+				});
+
+			await runExecutionPhase(
+				[{ id: "issue-1", title: "Fix A", branch: "branch-a" }],
+				createSandbox,
+				NOOP_SANDBOX,
+				NOOP_HOOKS,
+				[],
+				3,
+				undefined,
+				undefined,
+				hooks,
+			);
+
+			expect(errors).toHaveLength(1);
+			expect(errors[0]?.id).toBe("issue-1");
+			expect(errors[0]?.msg).toContain("implementer crashed");
+		});
+
+		it("onPostImplementer does NOT run when skipImplementer is true", async () => {
+			let postImplRan = false;
+			const hooks: PhaseHooks = {
+				onPostImplementer: [
+					async () => {
+						postImplRan = true;
+					},
+				],
+			};
+
+			const createSandbox: CreateSandboxFn = async () =>
+				mockSandbox(async (opts) => {
+					if (opts.name === "reviewer") return mockRunResult([]);
+					return mockRunResult();
+				});
 
 			const result = await runExecutionPhase(
 				[
-					{ id: "issue-1", title: "Fix A", branch: "branch-a" },
-					{ id: "issue-2", title: "Fix B", branch: "branch-b" },
+					{
+						id: "issue-1",
+						title: "Fix A",
+						branch: "branch-a",
+						skipImplementer: true,
+					},
 				],
 				createSandbox,
 				NOOP_SANDBOX,
 				NOOP_HOOKS,
 				[],
 				3,
+				undefined,
+				undefined,
+				hooks,
 			);
 
-			// issue-1 fails, issue-2 completes
 			expect(result).toHaveLength(1);
-			expect(result[0]?.id).toBe("issue-2");
+			expect(postImplRan).toBe(false);
 		});
 
-		it("does not run hooks when not configured", async () => {
-			// No env vars set — hooks should not run
-			const issues: PlannerIssue[] = [{ id: "issue-1", title: "Fix A", branch: "branch-a" }];
+		it("runs multiple hooks per phase in order", async () => {
+			const order: string[] = [];
+			const hooks: PhaseHooks = {
+				onPostMerge: undefined, // not used in execute phase
+				onPostReviewer: [
+					async () => {
+						order.push("post-review-a");
+					},
+					async () => {
+						order.push("post-review-b");
+					},
+				],
+			};
 
-			const result = await runExecutionPhase(
-				issues,
-				async () => mockSandbox(),
+			const createSandbox: CreateSandboxFn = async () => mockSandbox();
+
+			await runExecutionPhase(
+				[{ id: "issue-1", title: "Fix A", branch: "branch-a" }],
+				createSandbox,
 				NOOP_SANDBOX,
 				NOOP_HOOKS,
 				[],
 				3,
+				undefined,
+				undefined,
+				hooks,
 			);
 
-			expect(result).toHaveLength(1);
+			expect(order).toEqual(["post-review-a", "post-review-b"]);
 		});
 	});
 });

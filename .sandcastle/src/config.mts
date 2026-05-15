@@ -108,3 +108,72 @@ export const logger = pino({
 // platform-specific binaries and any packages added since the last copy.
 // .beads is included so the planner can query issues via `bd` inside the sandbox.
 export const copyToWorktree = ["node_modules", ".pnpm-store", ".beads"];
+
+// ---------------------------------------------------------------------------
+// Phase hooks
+// ---------------------------------------------------------------------------
+
+import { type PhaseHook, type PhaseHooks } from "./helpers/phase-hooks.mts";
+import { addLabel, MERGED } from "./helpers/labels.mts";
+import { createNotifierFromEnv, formatErrorMessage } from "./helpers/notifier.mts";
+import { $ } from "zx";
+
+$.verbose = false;
+
+export const notifier = createNotifierFromEnv();
+
+/** Shared hook: biome check (pnpm check) before reviewer. */
+const pnpmCheckHook: PhaseHook = async ({ logger, issueId }) => {
+	if (process.env.VITEST) return;
+	try {
+		await $`pnpm check`.quiet();
+	} catch (err) {
+		logger?.warn({ err, issueId }, "Biome check failed — continuing to reviewer");
+	}
+};
+
+/** Shared hook: pnpm install after merge. */
+const pnpmInstallHook: PhaseHook = async ({ logger, issueId, branch }) => {
+	if (process.env.VITEST) return;
+	try {
+		await $`CI=true pnpm install --no-frozen-lockfile`.quiet();
+	} catch (err) {
+		logger?.warn({ err, branch, issueId }, "pnpm install failed after merge");
+	}
+};
+
+/** Shared hook: close bead issue and set MERGED label. */
+const closeIssueHook: PhaseHook = async ({ issueId }) => {
+	if (!issueId) return;
+	await addLabel(issueId, MERGED);
+	await $`sh -c ${`bd close "${issueId}"`}`.quiet();
+};
+
+/** Shared hook: send ntfy notification. */
+const notifyHook: PhaseHook = async ({ issueId, branch, title, error }) => {
+	if (error) {
+		notifier
+			?.send({
+				level: "error",
+				title: `Failed: ${branch ?? issueId ?? "unknown"}`,
+				message: `Error: ${formatErrorMessage(error)}`,
+				tags: ["sandcastle", "error"],
+			})
+			.catch(() => {});
+	} else {
+		notifier
+			?.send({
+				level: "info",
+				title: `Done: ${branch ?? issueId ?? "unknown"}`,
+				message: `${title ? title + " — " : ""}Completed successfully.`,
+				tags: ["sandcastle"],
+			})
+			.catch(() => {});
+	}
+};
+
+export const phaseHooks: PhaseHooks = {
+	onPreReviewer: [pnpmCheckHook],
+	onPostMerge: [pnpmInstallHook, closeIssueHook, notifyHook],
+	onPostReviewer: [notifyHook],
+};

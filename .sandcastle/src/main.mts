@@ -3,13 +3,14 @@
 // Includes label state machine for crash-revert and resume routing.
 
 import * as sandcastle from "@ai-hero/sandcastle";
-import { $ } from "zx";
 import {
 	copyToWorktree,
 	GRACEFUL_SHUTDOWN_MS,
 	hooks,
 	logger,
 	MAX_PARALLEL_TASKS,
+	notifier,
+	phaseHooks,
 	POLL_INTERVAL_MS,
 	sandboxProvider,
 } from "./config.mts";
@@ -27,9 +28,10 @@ import {
 	setMetadata,
 	shouldSkipPlanner,
 } from "./helpers/labels.mts";
-import { createNotifierFromEnv, formatErrorMessage } from "./helpers/notifier.mts";
-import { type ExecuteLabelCallbacks, runExecutionPhase } from "./phases/execute.mts";
+import { formatErrorMessage } from "./helpers/notifier.mts";
+import { createExecuteOneIssue, type ExecuteLabelCallbacks } from "./phases/execute.mts";
 import { runMergePhase, verifyMergedIssues } from "./phases/merge.mts";
+import { runPipeline } from "./phases/pipeline.mts";
 import { runPlanner } from "./phases/plan.mts";
 import type { BeadsIssue, PlannerIssue } from "./types.mts";
 
@@ -149,7 +151,6 @@ async function routeResumeIssues(
 // Main loop
 // ---------------------------------------------------------------------------
 
-const notifier = createNotifierFromEnv();
 logger.info(
 	notifier
 		? "Notifier enabled via NTFY_TOPIC_URL"
@@ -182,13 +183,7 @@ export async function main(): Promise<void> {
 		}
 	};
 
-	// Merge completion callback: label as merged and close the bead issue
-	const onMergeComplete = async (issueId: string): Promise<void> => {
-		await addLabel(issueId, MERGED);
-		await $`sh -c ${`bd close "${issueId}"`}`.quiet();
-	};
-
-	let iteration = 0;
+		let iteration = 0;
 	while (true) {
 		iteration++;
 		logger.info({ iteration }, "Heartbeat — starting iteration");
@@ -201,33 +196,22 @@ export async function main(): Promise<void> {
 		// ---------------------------------------------------------------------------
 		let issues: PlannerIssue[] = [];
 		let resumeMerge: PlannerIssue[] = [];
+		let mergedIssues: PlannerIssue[] = [];
 
 		if (shouldSkipPlanner(openIssues)) {
 			// Resume mode: route issues based on current labels instead of planning
 			const routed = await routeResumeIssues(openIssues);
 			issues = routed.execute;
 			resumeMerge = routed.merge;
-
-			// Safety net: verify merged-labeled issues
-			if (routed.merged.length > 0) {
-				logger.info({ count: routed.merged.length }, "Safety net: verifying merged-labeled issues");
-				const reverted = await verifyMergedIssues(routed.merged, { logger });
-				if (reverted.length > 0) {
-					logger.info(
-						{ count: reverted.length, issues: reverted.map((i) => i.id) },
-						"Safety net: merged labels reverted — issues need re-merge",
-					);
-					resumeMerge.push(...reverted);
-				}
-			}
+			mergedIssues = routed.merged;
 
 			logger.info(
-				{ executeCount: issues.length, mergeCount: resumeMerge.length },
+				{ executeCount: issues.length, mergeCount: resumeMerge.length, mergedCount: mergedIssues.length },
 				"Resume routing complete",
 			);
 		} else {
 			try {
-				issues = await runPlanner(sandcastle.run, sandboxProvider, hooks, logger, onPlanComplete);
+				issues = await runPlanner(sandcastle.run, sandboxProvider, hooks, logger, onPlanComplete, phaseHooks);
 			} catch (err) {
 				logger.error({ err }, "Plan phase failed — exiting");
 				notifier
@@ -248,69 +232,76 @@ export async function main(): Promise<void> {
 		}
 
 		// ---------------------------------------------------------------------------
-		// Phase 2: Execute + Review
+		// Phase 2 + 3: Execute → Merge pipeline (Effect.ts Queue)
 		// ---------------------------------------------------------------------------
-		let completed: PlannerIssue[] = [];
+		// Safety net for merged-labeled issues: these are verified in the pipeline.
+		// For resume mode, reverted issues get added back to the merge queue.
+		if (mergedIssues.length > 0) {
+			logger.info({ count: mergedIssues.length }, "Safety net: verifying merged-labeled issues in pipeline");
+		}
 
-		if (issues.length > 0) {
+		// Creator functions for the pipeline
+		const executeOne = createExecuteOneIssue({
+			createSandbox: sandcastle.createSandbox,
+			sandboxProvider,
+			sandboxHooks: hooks,
+			copyToWorktree,
+			logger,
+			labelCallbacks,
+			phaseHooks,
+		});
+
+		const mergeOne = async (issue: PlannerIssue): Promise<void> => {
+			await runMergePhase(
+				sandcastle.run,
+				[issue],
+				sandboxProvider,
+				hooks,
+				logger,
+				phaseHooks,
+			);
+		};
+
+		const verifyOne = async (issue: PlannerIssue): Promise<void> => {
+			await verifyMergedIssues([issue], { logger });
+		};
+
+		const hasAnyIssues =
+			issues.length > 0 || resumeMerge.length > 0 || mergedIssues.length > 0;
+
+		if (hasAnyIssues) {
 			try {
-				completed = await runExecutionPhase(
-					issues,
-					sandcastle.createSandbox,
-					sandboxProvider,
-					hooks,
-					copyToWorktree,
-					MAX_PARALLEL_TASKS,
+				await runPipeline({
+					executeIssues: issues,
+					mergeIssues: resumeMerge,
+					mergedIssues,
+					executeOne,
+					mergeOne,
+					verifyOne,
+					maxParallelTasks: MAX_PARALLEL_TASKS,
 					logger,
-					labelCallbacks,
-					notifier,
-				);
+				});
 			} catch (err) {
-				logger.error({ err }, "Execute phase failed — continuing");
+				logger.error({ err }, "Pipeline failed — continuing");
+				notifier
+					?.send({
+						level: "error",
+						title: "Pipeline failed",
+						message: `Pipeline execution failed: ${formatErrorMessage(err)}`,
+						tags: ["sandcastle", "error"],
+					})
+					.catch(() => {});
 				continue;
 			}
 
-			const branches = completed.map((i) => i.branch);
-			logger.info({ count: branches.length }, "Execution complete");
-			for (const b of branches) logger.info(`  ${b}`);
-		}
-
-		// ---------------------------------------------------------------------------
-		// Phase 3: Merge
-		// ---------------------------------------------------------------------------
-		// Merge both freshly-executed issues and issues routed straight to merge
-		const allToMerge = [...completed, ...resumeMerge];
-		if (allToMerge.length === 0) {
-			logger.info("No commits produced or issues to merge. Skipping merge.");
+			logger.info("Pipeline complete.");
+		} else {
+			logger.info("No issues to process. Skipping.");
 			if (!shouldSkipPlanner(openIssues)) {
 				break;
 			}
 			continue;
 		}
-
-		try {
-			await runMergePhase(
-				sandcastle.run,
-				allToMerge,
-				sandboxProvider,
-				hooks,
-				logger,
-				onMergeComplete,
-			);
-		} catch (err) {
-			logger.error({ err }, "Merge phase failed — continuing");
-			notifier
-				?.send({
-					level: "error",
-					title: "Merge phase failed",
-					message: `Merge phase failed: ${formatErrorMessage(err)}`,
-					tags: ["merge", "sandcastle", "error"],
-				})
-				.catch(() => {});
-			continue;
-		}
-
-		logger.info({ count: allToMerge.length }, "Branches merged.");
 
 		if (shouldShutdown) {
 			logger.info("Graceful shutdown — iteration complete");

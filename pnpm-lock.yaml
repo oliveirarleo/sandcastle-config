@@ -13,6 +13,9 @@ importers:
 
   .:
     dependencies:
+      effect:
+        specifier: ^3.21.2
+        version: 3.21.2
       pino:
         specifier: ^10.3.1
         version: 10.3.1

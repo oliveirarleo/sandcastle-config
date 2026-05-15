@@ -1,9 +1,8 @@
 import { pi, type SandboxHooks, type SandboxProvider } from "@ai-hero/sandcastle";
 import type { Logger } from "pino";
 import { $ } from "zx";
-import { runPhaseHook } from "../helpers/hooks.mts";
+import { runHooks, type PhaseHooks } from "../helpers/phase-hooks.mts";
 import { EXECUTED, MERGED } from "../helpers/labels.mts";
-import { formatErrorMessage, type Notifier } from "../helpers/notifier.mts";
 import type { PlannerIssue, RunSandbox } from "../types.mts";
 
 $.verbose = false;
@@ -30,27 +29,6 @@ async function execShell(cmd: string): Promise<{ stdout: string; stderr: string 
 async function defaultBdExec(cmd: string): Promise<string> {
 	const { stdout } = await execShell(cmd);
 	return stdout.trim();
-}
-
-/**
- * Run `pnpm install` after a merge to pick up dependency changes from
- * the merged branch. Failure is non-fatal — a warning is logged but the
- * merge loop continues.
- */
-async function installDependencies(
-	logger: Logger | undefined,
-	branch: string,
-	issueId: string,
-): Promise<void> {
-	if (process.env.VITEST) return;
-	try {
-		await $`CI=true pnpm install --no-frozen-lockfile`.quiet();
-	} catch (err) {
-		logger?.warn(
-			{ err, branch, issueId },
-			"pnpm install failed after merge — dependencies may be out of date",
-		);
-	}
 }
 
 /**
@@ -140,10 +118,9 @@ export async function runMergePhase(
 	runSandbox: RunSandbox,
 	completedIssues: PlannerIssue[],
 	sandboxProvider: SandboxProvider,
-	hooks: SandboxHooks,
+	sandboxHooks: SandboxHooks,
 	logger?: Logger,
-	onMergeComplete?: (issueId: string) => Promise<void>,
-	notifier?: Notifier,
+	phaseHooks?: PhaseHooks,
 ): Promise<void> {
 	for (const issue of completedIssues) {
 		logger?.info({ branch: issue.branch, issueId: issue.id }, "Merging branch");
@@ -154,17 +131,21 @@ export async function runMergePhase(
 			if (alreadyMerged) {
 				logger?.info(
 					{ branch: issue.branch, issueId: issue.id },
-					"Branch already merged (git branch --merged). Skipping merge, updating label.",
+					"Branch already merged (git branch --merged). Skipping merge.",
 				);
-				await onMergeComplete?.(issue.id);
 				continue;
 			}
 
-			// ---- Pre-merge hook (non-fatal) ----
-			await runPhaseHook(issue.id, "pre_merge", logger);
+			// ---- Pre-merge hooks (non-fatal) ----
+			await runHooks(phaseHooks?.onPreMerge, {
+				issueId: issue.id,
+				branch: issue.branch,
+				title: issue.title,
+				logger,
+			});
 
 			await runSandbox({
-				hooks,
+				hooks: sandboxHooks,
 				sandbox: sandboxProvider,
 				name: "merger",
 				maxIterations: 1,
@@ -177,36 +158,27 @@ export async function runMergePhase(
 				},
 			});
 
-			// ---- Post-merge hook (non-fatal) ----
-			await runPhaseHook(issue.id, "post_merge", logger);
-
-			notifier
-				?.send({
-					level: "info",
-					title: `Merged ${issue.branch}`,
-					message: `Branch ${issue.branch} (${issue.id}: ${issue.title}) merged successfully.`,
-					tags: ["merge", "sandcastle"],
-				})
-				.catch(() => {});
-
-			await onMergeComplete?.(issue.id);
-
-			logger?.info({ branch: issue.branch, issueId: issue.id }, "Running pnpm install after merge");
-			await installDependencies(logger, issue.branch, issue.id);
+			// ---- Post-merge hooks (non-fatal) ----
+			await runHooks(phaseHooks?.onPostMerge, {
+				issueId: issue.id,
+				branch: issue.branch,
+				title: issue.title,
+				logger,
+			});
 		} catch (err) {
 			logger?.error(
 				{ err, branch: issue.branch, issueId: issue.id },
 				`Merge failed for ${issue.id} (${issue.branch}), continuing with remaining branches`,
 			);
 
-			notifier
-				?.send({
-					level: "warn",
-					title: `Merge failed: ${issue.branch}`,
-					message: `Branch ${issue.branch} (${issue.id}) merge failed: ${formatErrorMessage(err)}`,
-					tags: ["merge", "sandcastle", "error"],
-				})
-				.catch(() => {});
+			// ---- Post-merge hooks with error (non-fatal) ----
+			await runHooks(phaseHooks?.onPostMerge, {
+				issueId: issue.id,
+				branch: issue.branch,
+				title: issue.title,
+				logger,
+				error: err,
+			});
 		}
 	}
 }
