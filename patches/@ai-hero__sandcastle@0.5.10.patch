@@ -94,3 +94,38 @@ index d5eea1111ea63f1b0ef0f7dacf36711f40a1ece0..bde488c58c803e3deef62e0337f6c8e4
                          skipPromptExpansion: isInlinePrompt,
                      });
                  }).pipe(Effect.provide(runLayer)));
+diff --git a/dist/sandboxes/docker.js b/dist/sandboxes/docker.js
+index 2cc7cea8e1c167bf6f3ea8a3d8116c768b5cbcb3..2d9713137babb039d478c30b4b3479b877a846b3 100644
+--- a/dist/sandboxes/docker.js
++++ b/dist/sandboxes/docker.js
+@@ -123,19 +123,28 @@ export const docker = (options) => {
+                             proc.stdin.write(opts.stdin);
+                             proc.stdin.end();
+                         }
++                        const MAX_STDOUT_SIZE = 100 * 1024 * 1024; // 100MB — prevent RangeError from Array.join
++                        let stdoutSize = 0;
+                         const stdoutChunks = [];
+                         const stderrChunks = [];
+                         if (opts?.onLine) {
+                             const onLine = opts.onLine;
+                             const rl = createInterface({ input: proc.stdout });
+                             rl.on("line", (line) => {
+-                                stdoutChunks.push(line);
++                                if (stdoutSize < MAX_STDOUT_SIZE) {
++                                    stdoutChunks.push(line);
++                                    stdoutSize += line.length + 1; // +1 for \n separator
++                                }
+                                 onLine(line);
+                             });
+                         }
+                         else {
+                             proc.stdout.on("data", (chunk) => {
+-                                stdoutChunks.push(chunk.toString());
++                                const str = chunk.toString();
++                                if (stdoutSize < MAX_STDOUT_SIZE) {
++                                    stdoutChunks.push(str);
++                                    stdoutSize += str.length;
++                                }
+                             });
+                         }
+                         proc.stderr.on("data", (chunk) => {
