@@ -41,8 +41,8 @@ sudo systemctl start sandcastle.service
 The daemon runs an **infinite `while (true)` loop**. Each iteration:
 
 1. Logs a **heartbeat** message (`"Heartbeat — starting iteration"`)
-2. Polls for open bead issues via `bd list --status open` (with a configurable
-   sleep before the first poll — see **Adjust poll interval** below)
+2. Polls for open bead issues (with a configurable sleep between polls when
+   none are found — see **Adjust poll interval** below)
 3. **Phase 1 — Plan**: runs the planner (AI-driven) to figure out which open
    issues can be worked on and generates a prompt for each
 4. **Phase 2 — Execute + Review**: runs implementer + reviewer agents in
@@ -58,7 +58,7 @@ When the daemon receives **SIGTERM** (e.g. `systemctl stop sandcastle.service`):
 
 1. A `shouldShutdown` flag is set — the current iteration is allowed to
    finish normally
-2. A **10-minute fallback timer** starts (`GRACEFUL_SHUTDOWN_MS = 600 000 ms`);
+2. A **10-minute fallback timer** starts (`GRACEFUL_SHUTDOWN_MS = 600000 ms`);
    if the iteration hasn't completed by then, `process.exit(1)` is forced
 3. At the end of each iteration, the loop checks `shouldShutdown`; if true,
    it logs `"Graceful shutdown — iteration complete"` and exits cleanly
