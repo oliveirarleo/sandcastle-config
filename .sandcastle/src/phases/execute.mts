@@ -77,7 +77,7 @@ export async function runExecutionPhase(
 				name: "implementer",
 				maxIterations: 100,
 				agent: pi("opencode-go/deepseek-v4-pro"),
-				promptFile: "./.sandcastle/implement-prompt.md",
+				promptFile: "./.sandcastle/prompts/implement.md",
 				promptArgs: {
 					TASK_ID: issue.id,
 					ISSUE_TITLE: issue.title,
@@ -110,7 +110,7 @@ export async function runExecutionPhase(
 					name: "reviewer",
 					maxIterations: 1,
 					agent: pi("opencode-go/deepseek-v4-pro"),
-					promptFile: "./.sandcastle/review-prompt.md",
+					promptFile: "./.sandcastle/prompts/review.md",
 					promptArgs: { BRANCH: issue.branch },
 				});
 

@@ -49,7 +49,7 @@ describe("runPlanner", () => {
 		expect(calls).toHaveLength(1);
 		expect(calls[0]?.name).toBe("planner");
 		expect(calls[0]?.maxIterations).toBe(1);
-		expect(calls[0]?.promptFile).toBe("./.sandcastle/plan-prompt.md");
+		expect(calls[0]?.promptFile).toBe("./.sandcastle/prompts/plan.md");
 	});
 
 	it("throws when <plan> tag is missing", async () => {

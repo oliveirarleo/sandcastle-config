@@ -10,5 +10,5 @@
 		"skipLibCheck": true,
 		"types": ["node"]
 	},
-	"include": ["src/**/*", ".sandcastle/**/*"]
+	"include": ["src/**/*", ".sandcastle/src/**/*"]
 }
