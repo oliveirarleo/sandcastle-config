@@ -19,6 +19,9 @@ Environment="HOME=/home/mainframe"
 # How long to sleep between polls (default 5 min). Override here or in main.mts.
 # Environment="SANDCASTLE_POLL_MS=300000"
 
+# Graceful shutdown timeout (10 min + 30 s buffer to match GRACEFUL_SHUTDOWN_MS)
+TimeoutStopSec=630
+
 ExecStart=pnpm run sc
 
 # Restart only on failure — the inner loop handles normal sleep/wake.
