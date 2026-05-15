@@ -9,6 +9,7 @@ import type { Logger } from "pino";
 import { $ } from "zx";
 import { runWithConcurrencyLimit } from "../helpers/concurrency.mts";
 import { formatErrorMessage, type Notifier } from "../helpers/notifier.mts";
+import { EXECUTED, EXECUTING, REVIEWING } from "../helpers/labels.mts";
 import type { PlannerIssue } from "../types.mts";
 
 $.verbose = false;
@@ -49,6 +50,12 @@ export interface ExecuteLabelCallbacks {
 	 * agent start instead of crashing.
 	 */
 	onValidateSession?: (sessionId: string) => Promise<boolean>;
+	/**
+	 * Called when an issue's implementer or reviewer throws and the phase
+	 * label is reverted one step. The `currentLabel` is the label that was
+	 * set before the crash (the one being reverted from).
+	 */
+	onCrash?: (issueId: string, currentLabel: string) => Promise<void>;
 }
 
 export type CreateSandboxFn = (options: {
@@ -116,14 +123,16 @@ export async function runExecutionPhase(
 			copyToWorktree,
 		});
 
+		let lastPhaseLabel: string | undefined;
+		let implementResult: SandboxRunResult | undefined;
+
 		try {
 			// ---- Implementer ----
-			let implementResult: SandboxRunResult | undefined;
-
 			if (issue.skipImplementer) {
 				logger?.info({ issueId: issue.id }, "Skip implementer — resuming from review phase");
 			} else {
 				await labelCallbacks?.onImplementStart?.(issue.id);
+				lastPhaseLabel = EXECUTING;
 
 				implementResult = await sandbox.run({
 					name: "implementer",
@@ -167,6 +176,7 @@ export async function runExecutionPhase(
 				}
 
 				await labelCallbacks?.onReviewStart?.(issue.id);
+				lastPhaseLabel = REVIEWING;
 
 				const reviewResult = await sandbox.run({
 					name: "reviewer",
@@ -182,6 +192,7 @@ export async function runExecutionPhase(
 				await labelCallbacks?.onReviewSession?.(issue.id, reviewSessionId);
 
 				await labelCallbacks?.onExecuteComplete?.(issue.id);
+				lastPhaseLabel = EXECUTED;
 
 				const implementCommits = implementResult?.commits ?? [];
 				return {
@@ -199,6 +210,21 @@ export async function runExecutionPhase(
 				return { stdout: "", commits: [], iterations: [], logFilePath: undefined };
 			}
 			return implementResult;
+		} catch (err) {
+			// Revert phase label on crash so the issue reappears at the right
+			// point on next sandcastle startup.
+			if (lastPhaseLabel) {
+				try {
+					await labelCallbacks?.onCrash?.(issue.id, lastPhaseLabel);
+				} catch (revertErr) {
+					// Non-fatal: don't mask the original error
+					logger?.error(
+						{ err: revertErr, issueId: issue.id },
+						"Label revert callback failed — continuing with original error",
+					);
+				}
+			}
+			throw err;
 		} finally {
 			await sandbox.close();
 		}

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
 	classifyResumeLabel,
 	EXECUTED,
@@ -8,6 +8,7 @@ import {
 	REVIEWING,
 	shouldSkipPlanner,
 } from "./helpers/labels.mts";
+import { createLabelCallbacks } from "./main.mts";
 import type { BeadsIssue } from "./types.mts";
 
 // ---------------------------------------------------------------------------
@@ -95,5 +96,78 @@ describe("classifyResumeLabel", () => {
 
 	it("executed takes priority over planned", () => {
 		expect(classifyResumeLabel(issue([PLANNED, EXECUTED]))).toBe("merge");
+	});
+});
+
+// ---------------------------------------------------------------------------
+// createLabelCallbacks
+// ---------------------------------------------------------------------------
+
+describe("createLabelCallbacks", () => {
+	it("onImplementStart adds EXECUTING label", async () => {
+		const exec = vi.fn<(cmd: string) => Promise<string>>().mockResolvedValue("");
+		const callbacks = createLabelCallbacks({ exec });
+		await callbacks.onImplementStart?.("issue-1");
+		expect(exec).toHaveBeenCalledWith(`bd label add "issue-1" ${EXECUTING}`);
+	});
+
+	it("onReviewStart adds REVIEWING label", async () => {
+		const exec = vi.fn<(cmd: string) => Promise<string>>().mockResolvedValue("");
+		const callbacks = createLabelCallbacks({ exec });
+		await callbacks.onReviewStart?.("issue-1");
+		expect(exec).toHaveBeenCalledWith(`bd label add "issue-1" ${REVIEWING}`);
+	});
+
+	it("onExecuteComplete adds EXECUTED label", async () => {
+		const exec = vi.fn<(cmd: string) => Promise<string>>().mockResolvedValue("");
+		const callbacks = createLabelCallbacks({ exec });
+		await callbacks.onExecuteComplete?.("issue-1");
+		expect(exec).toHaveBeenCalledWith(`bd label add "issue-1" ${EXECUTED}`);
+	});
+
+	it("onImplementSession persists session ID", async () => {
+		const exec = vi.fn<(cmd: string) => Promise<string>>().mockResolvedValue("");
+		const callbacks = createLabelCallbacks({ exec });
+		await callbacks.onImplementSession?.("issue-1", "session-abc");
+		expect(exec).toHaveBeenCalledWith(
+			`bd update "issue-1" --set-metadata implementSession=session-abc`,
+		);
+	});
+
+	it("onImplementSession does nothing when sessionId is undefined", async () => {
+		const exec = vi.fn<(cmd: string) => Promise<string>>().mockResolvedValue("");
+		const callbacks = createLabelCallbacks({ exec });
+		await callbacks.onImplementSession?.("issue-1", undefined);
+		expect(exec).not.toHaveBeenCalled();
+	});
+
+	it("onReviewSession persists session ID", async () => {
+		const exec = vi.fn<(cmd: string) => Promise<string>>().mockResolvedValue("");
+		const callbacks = createLabelCallbacks({ exec });
+		await callbacks.onReviewSession?.("issue-1", "session-xyz");
+		expect(exec).toHaveBeenCalledWith(
+			`bd update "issue-1" --set-metadata reviewSession=session-xyz`,
+		);
+	});
+
+	it("onReviewSession does nothing when sessionId is undefined", async () => {
+		const exec = vi.fn<(cmd: string) => Promise<string>>().mockResolvedValue("");
+		const callbacks = createLabelCallbacks({ exec });
+		await callbacks.onReviewSession?.("issue-1", undefined);
+		expect(exec).not.toHaveBeenCalled();
+	});
+
+	it("onValidateSession returns true by default", async () => {
+		const callbacks = createLabelCallbacks();
+		const result = await callbacks.onValidateSession?.("any-session-id");
+		expect(result).toBe(true);
+	});
+
+	it("onCrash calls revertPhaseLabel", async () => {
+		const exec = vi.fn<(cmd: string) => Promise<string>>().mockResolvedValue("");
+		const callbacks = createLabelCallbacks({ exec });
+		await callbacks.onCrash?.("issue-1", EXECUTING);
+		// Revert from executing -> planned
+		expect(exec).toHaveBeenCalledWith(`bd label add "issue-1" ${PLANNED}`);
 	});
 });

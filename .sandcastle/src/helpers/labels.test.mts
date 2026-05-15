@@ -12,6 +12,7 @@ import {
 	PLANNED,
 	REVIEWING,
 	removeLabel,
+	revertPhaseLabel,
 	sandcastleLabelPrefix,
 	setMetadata,
 	stripLabelsCmd,
@@ -251,5 +252,37 @@ describe("removeLabel", () => {
 		const exec = vi.fn<(cmd: string) => Promise<string>>().mockResolvedValue("");
 		await removeLabel("issue-1", PLANNED, { exec });
 		expect(exec).toHaveBeenCalledWith(`bd label remove "issue-1" ${PLANNED}`);
+	});
+});
+
+describe("revertPhaseLabel", () => {
+	it("steps back from executing to planned", async () => {
+		const exec = vi.fn<(cmd: string) => Promise<string>>().mockResolvedValue("");
+		await revertPhaseLabel("issue-1", EXECUTING, { exec });
+		expect(exec).toHaveBeenCalledWith(`bd label add "issue-1" ${PLANNED}`);
+	});
+
+	it("steps back from reviewing to executing", async () => {
+		const exec = vi.fn<(cmd: string) => Promise<string>>().mockResolvedValue("");
+		await revertPhaseLabel("issue-1", REVIEWING, { exec });
+		expect(exec).toHaveBeenCalledWith(`bd label add "issue-1" ${EXECUTING}`);
+	});
+
+	it("steps back from executed to reviewing", async () => {
+		const exec = vi.fn<(cmd: string) => Promise<string>>().mockResolvedValue("");
+		await revertPhaseLabel("issue-1", EXECUTED, { exec });
+		expect(exec).toHaveBeenCalledWith(`bd label add "issue-1" ${REVIEWING}`);
+	});
+
+	it("strips planned label (back to open) when label is planned", async () => {
+		const exec = vi.fn<(cmd: string) => Promise<string>>().mockResolvedValue("");
+		await revertPhaseLabel("issue-1", PLANNED, { exec });
+		expect(exec).toHaveBeenCalledWith(`bd label remove "issue-1" ${PLANNED}`);
+	});
+
+	it("does nothing for unknown label", async () => {
+		const exec = vi.fn<(cmd: string) => Promise<string>>().mockResolvedValue("");
+		await revertPhaseLabel("issue-1", "unknown:label", { exec });
+		expect(exec).not.toHaveBeenCalled();
 	});
 });

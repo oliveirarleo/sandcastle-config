@@ -184,6 +184,34 @@ export async function removeLabel(
 	await ex(`bd label remove "${issueId}" ${label}`);
 }
 
+/**
+ * Revert a sandcastle phase label one step back in the lifecycle.
+ *
+ * State machine: planned → executing → reviewing → executed → merged
+ *
+ * If the current label is `planned`, strip all sandcastle labels (back to raw open).
+ * If the label is unknown, no-op.
+ */
+export async function revertPhaseLabel(
+	issueId: string,
+	currentLabel: string,
+	deps?: { exec?: (cmd: string) => Promise<string> },
+): Promise<void> {
+	const phases = [PLANNED, EXECUTING, REVIEWING, EXECUTED, MERGED];
+	const currentIdx = phases.indexOf(currentLabel);
+	if (currentIdx > 0) {
+		// Step back to the previous phase (index is always valid since currentIdx > 0)
+		const prevLabel = phases[currentIdx - 1];
+		if (prevLabel) {
+			await addLabel(issueId, prevLabel, deps);
+		}
+	} else if (currentIdx === 0) {
+		// Strip planned — back to open
+		await removeLabel(issueId, currentLabel, deps);
+	}
+	// If currentIdx === -1, unknown label — no-op
+}
+
 // ---------------------------------------------------------------------------
 // Default implementations
 // ---------------------------------------------------------------------------

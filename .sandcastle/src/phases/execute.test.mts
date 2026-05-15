@@ -643,5 +643,149 @@ describe("runExecutionPhase", () => {
 			expect(result).toHaveLength(1);
 			expect(result[0]?.id).toBe("issue-1");
 		});
+
+		// -----------------------------------------------------------------------
+		// Crash revert tests
+		// -----------------------------------------------------------------------
+
+		describe("crash revert", () => {
+			it("reverts from executing to planned when implementer crashes after onImplementStart", async () => {
+				const crashes: string[] = [];
+				const callbacks: ExecuteLabelCallbacks = {
+					onCrash: async (issueId, currentLabel) => {
+						crashes.push(`${issueId}:${currentLabel}`);
+					},
+				};
+
+				const createSandbox: CreateSandboxFn = async () =>
+					mockSandbox(async (opts) => {
+						if (opts.name === "implementer") {
+							throw new Error("implementer crashed");
+						}
+						return mockRunResult();
+					});
+
+				const result = await runExecutionPhase(
+					[{ id: "issue-1", title: "Fix A", branch: "branch-a" }],
+					createSandbox,
+					NOOP_SANDBOX,
+					NOOP_HOOKS,
+					[],
+					3,
+					undefined,
+					callbacks,
+				);
+
+				// Issue should not be completed
+				expect(result).toHaveLength(0);
+				// Revert should have been triggered from EXECUTING back to PLANNED
+				expect(crashes).toEqual(["issue-1:sandcastle:executing"]);
+			});
+
+			it("reverts from reviewing to executing when reviewer crashes after onReviewStart", async () => {
+				const crashes: string[] = [];
+				const callbacks: ExecuteLabelCallbacks = {
+					onCrash: async (issueId, currentLabel) => {
+						crashes.push(`${issueId}:${currentLabel}`);
+					},
+				};
+
+				const createSandbox: CreateSandboxFn = async () =>
+					mockSandbox(async (opts) => {
+						if (opts.name === "implementer") {
+							return mockRunResult([{ sha: "abc" }]);
+						}
+						if (opts.name === "reviewer") {
+							throw new Error("reviewer crashed");
+						}
+						return mockRunResult();
+					});
+
+				const result = await runExecutionPhase(
+					[{ id: "issue-1", title: "Fix A", branch: "branch-a" }],
+					createSandbox,
+					NOOP_SANDBOX,
+					NOOP_HOOKS,
+					[],
+					3,
+					undefined,
+					callbacks,
+				);
+
+				// Issue should not be completed
+				expect(result).toHaveLength(0);
+				// Revert should have been triggered from REVIEWING back to EXECUTING
+				expect(crashes).toEqual(["issue-1:sandcastle:reviewing"]);
+			});
+
+			it("does not trigger revert when sandbox creation fails before any label callbacks", async () => {
+				const crashes: string[] = [];
+				const callbacks: ExecuteLabelCallbacks = {
+					onCrash: async (issueId, currentLabel) => {
+						crashes.push(`${issueId}:${currentLabel}`);
+					},
+				};
+
+				const createSandbox: CreateSandboxFn = async () => {
+					throw new Error("sandbox creation failed");
+				};
+
+				const result = await runExecutionPhase(
+					[{ id: "issue-1", title: "Fix A", branch: "branch-a" }],
+					createSandbox,
+					NOOP_SANDBOX,
+					NOOP_HOOKS,
+					[],
+					3,
+					undefined,
+					callbacks,
+				);
+
+				expect(result).toHaveLength(0);
+				// No crash callback should have been called
+				expect(crashes).toEqual([]);
+			});
+
+			it("isolates crashes per issue - other issues still complete", async () => {
+				const crashes: string[] = [];
+				const callbacks: ExecuteLabelCallbacks = {
+					onCrash: async (issueId, currentLabel) => {
+						crashes.push(`${issueId}:${currentLabel}`);
+					},
+				};
+
+				const createSandbox: CreateSandboxFn = async (opts) => {
+					if (opts.branch === "branch-a") {
+						return mockSandbox(async (runOpts) => {
+							if (runOpts.name === "implementer") {
+								throw new Error("branch-a implementer crashed");
+							}
+							return mockRunResult();
+						});
+					}
+					return mockSandbox();
+				};
+
+				const result = await runExecutionPhase(
+					[
+						{ id: "issue-1", title: "Fix A", branch: "branch-a" },
+						{ id: "issue-2", title: "Fix B", branch: "branch-b" },
+					],
+					createSandbox,
+					NOOP_SANDBOX,
+					NOOP_HOOKS,
+					[],
+					2,
+					undefined,
+					callbacks,
+				);
+
+				// Only branch-b should complete
+				expect(result).toHaveLength(1);
+				expect(result[0]?.id).toBe("issue-2");
+				// Branch-a should have triggered a revert
+				expect(crashes).toEqual(["issue-1:sandcastle:executing"]);
+			});
+		});
 	});
 });
