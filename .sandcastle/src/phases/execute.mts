@@ -8,8 +8,8 @@ import {
 import type { Logger } from "pino";
 import { $ } from "zx";
 import { runWithConcurrencyLimit } from "../helpers/concurrency.mts";
-import { formatErrorMessage, type Notifier } from "../helpers/notifier.mts";
 import { EXECUTED, EXECUTING, REVIEWING } from "../helpers/labels.mts";
+import { formatErrorMessage, type Notifier } from "../helpers/notifier.mts";
 import type { PlannerIssue } from "../types.mts";
 
 $.verbose = false;

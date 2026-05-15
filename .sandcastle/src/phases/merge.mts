@@ -1,7 +1,7 @@
 import { pi, type SandboxHooks, type SandboxProvider } from "@ai-hero/sandcastle";
 import type { Logger } from "pino";
-import { formatErrorMessage, type Notifier } from "../helpers/notifier.mts";
 import { $ } from "zx";
+import { formatErrorMessage, type Notifier } from "../helpers/notifier.mts";
 import type { PlannerIssue, RunSandbox } from "../types.mts";
 
 $.verbose = false;

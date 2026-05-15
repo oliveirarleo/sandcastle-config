@@ -14,7 +14,6 @@ import {
 	sandboxProvider,
 } from "./config.mts";
 import { waitForOpenIssues } from "./helpers/issues.mts";
-import { createNotifierFromEnv, formatErrorMessage } from "./helpers/notifier.mts";
 import {
 	addLabel,
 	classifyResumeLabel,
@@ -28,6 +27,7 @@ import {
 	setMetadata,
 	shouldSkipPlanner,
 } from "./helpers/labels.mts";
+import { createNotifierFromEnv, formatErrorMessage } from "./helpers/notifier.mts";
 import { type ExecuteLabelCallbacks, runExecutionPhase } from "./phases/execute.mts";
 import { runMergePhase } from "./phases/merge.mts";
 import { runPlanner } from "./phases/plan.mts";
@@ -219,7 +219,6 @@ export async function main(): Promise<void> {
 				logger.info("No unblocked issues — exiting");
 				break;
 			}
-		}
 		}
 
 		// ---------------------------------------------------------------------------
