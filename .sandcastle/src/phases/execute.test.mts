@@ -6,7 +6,7 @@ import type {
 } from "@ai-hero/sandcastle";
 import { describe, expect, it } from "vitest";
 import type { PlannerIssue } from "../types.mts";
-import { type CreateSandboxFn, runExecutionPhase } from "./execute.mts";
+import { type CreateSandboxFn, type ExecuteLabelCallbacks, runExecutionPhase } from "./execute.mts";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -15,8 +15,36 @@ import { type CreateSandboxFn, runExecutionPhase } from "./execute.mts";
 const NOOP_SANDBOX = {} as unknown as SandboxProvider;
 const NOOP_HOOKS = {} as unknown as SandboxHooks;
 
-function mockRunResult(commits: { sha: string }[] = [{ sha: "abc123" }]): SandboxRunResult {
-	return { stdout: "", commits, iterations: [], logFilePath: undefined };
+interface RunCapture {
+	name?: string;
+	resumeSession?: string;
+}
+
+function mockRunResult(
+	commits: { sha: string }[] = [{ sha: "abc123" }],
+	sessionId?: string,
+): SandboxRunResult {
+	return {
+		stdout: "",
+		commits,
+		iterations: sessionId ? [{ sessionId }] : [],
+		logFilePath: undefined,
+	};
+}
+
+function mockSandboxWithCapture(): {
+	sandbox: ReturnType<typeof mockSandbox>;
+	runs: RunCapture[];
+} {
+	const runs: RunCapture[] = [];
+	const sandbox = mockSandbox(async (opts) => {
+		runs.push({ name: opts.name, resumeSession: opts.resumeSession });
+		return mockRunResult(
+			opts.name === "implementer" ? [{ sha: "abc" }] : [],
+			`session-${opts.name}`,
+		);
+	});
+	return { sandbox, runs };
 }
 
 function mockSandbox(
@@ -258,5 +286,362 @@ describe("runExecutionPhase", () => {
 
 		expect(result).toHaveLength(0);
 		expect(calls).toEqual([]);
+	});
+
+	// -----------------------------------------------------------------------
+	// Resume tests
+	// -----------------------------------------------------------------------
+
+	describe("resume", () => {
+		it("passes no resumeSession for fresh issue (backward compatible)", async () => {
+			const { sandbox, runs } = mockSandboxWithCapture();
+
+			await runExecutionPhase(
+				[{ id: "issue-1", title: "Fix A", branch: "branch-a" }],
+				async () => sandbox,
+				NOOP_SANDBOX,
+				NOOP_HOOKS,
+				[],
+				3,
+			);
+
+			const implementRun = runs.find((r) => r.name === "implementer");
+			expect(implementRun?.resumeSession).toBeUndefined();
+		});
+
+		it("passes resumeSession to implementer when implementSession is set", async () => {
+			const { sandbox, runs } = mockSandboxWithCapture();
+
+			await runExecutionPhase(
+				[
+					{
+						id: "issue-1",
+						title: "Fix A",
+						branch: "branch-a",
+						implementSession: "ses-implement-abc",
+					},
+				],
+				async () => sandbox,
+				NOOP_SANDBOX,
+				NOOP_HOOKS,
+				[],
+				3,
+			);
+
+			const implementRun = runs.find((r) => r.name === "implementer");
+			expect(implementRun?.resumeSession).toBe("ses-implement-abc");
+		});
+
+		it("passes resumeSession to reviewer when reviewSession is set", async () => {
+			const { sandbox, runs } = mockSandboxWithCapture();
+
+			await runExecutionPhase(
+				[
+					{
+						id: "issue-1",
+						title: "Fix A",
+						branch: "branch-a",
+						reviewSession: "ses-review-xyz",
+					},
+				],
+				async () => sandbox,
+				NOOP_SANDBOX,
+				NOOP_HOOKS,
+				[],
+				3,
+			);
+
+			const reviewRun = runs.find((r) => r.name === "reviewer");
+			expect(reviewRun?.resumeSession).toBe("ses-review-xyz");
+		});
+
+		it("skips implementer when skipImplementer is true", async () => {
+			const { sandbox, runs } = mockSandboxWithCapture();
+
+			await runExecutionPhase(
+				[
+					{
+						id: "issue-1",
+						title: "Fix A",
+						branch: "branch-a",
+						skipImplementer: true,
+					},
+				],
+				async () => sandbox,
+				NOOP_SANDBOX,
+				NOOP_HOOKS,
+				[],
+				3,
+			);
+
+			const implementRun = runs.find((r) => r.name === "implementer");
+			expect(implementRun).toBeUndefined();
+			const reviewRun = runs.find((r) => r.name === "reviewer");
+			expect(reviewRun).toBeDefined();
+		});
+
+		it("skips implementer and resumes reviewer when skipImplementer + reviewSession", async () => {
+			const { sandbox, runs } = mockSandboxWithCapture();
+
+			await runExecutionPhase(
+				[
+					{
+						id: "issue-1",
+						title: "Fix A",
+						branch: "branch-a",
+						skipImplementer: true,
+						reviewSession: "ses-review-xyz",
+					},
+				],
+				async () => sandbox,
+				NOOP_SANDBOX,
+				NOOP_HOOKS,
+				[],
+				3,
+			);
+
+			const implementRun = runs.find((r) => r.name === "implementer");
+			expect(implementRun).toBeUndefined();
+			const reviewRun = runs.find((r) => r.name === "reviewer");
+			expect(reviewRun?.resumeSession).toBe("ses-review-xyz");
+		});
+
+		it("calls onImplementSession with session ID after implementer run", async () => {
+			const sessions: Array<{ id: string; sessionId?: string }> = [];
+			const callbacks: ExecuteLabelCallbacks = {
+				onImplementSession: (id, sessionId) => {
+					sessions.push({ id, sessionId });
+					return Promise.resolve();
+				},
+			};
+
+			const { sandbox } = mockSandboxWithCapture();
+
+			await runExecutionPhase(
+				[{ id: "issue-1", title: "Fix A", branch: "branch-a" }],
+				async () => sandbox,
+				NOOP_SANDBOX,
+				NOOP_HOOKS,
+				[],
+				3,
+				undefined,
+				callbacks,
+			);
+
+			expect(sessions).toEqual([{ id: "issue-1", sessionId: "session-implementer" }]);
+		});
+
+		it("calls onReviewSession with session ID after reviewer run", async () => {
+			const sessions: Array<{ id: string; sessionId?: string }> = [];
+			const callbacks: ExecuteLabelCallbacks = {
+				onReviewSession: (id, sessionId) => {
+					sessions.push({ id, sessionId });
+					return Promise.resolve();
+				},
+			};
+
+			const { sandbox } = mockSandboxWithCapture();
+
+			await runExecutionPhase(
+				[{ id: "issue-1", title: "Fix A", branch: "branch-a" }],
+				async () => sandbox,
+				NOOP_SANDBOX,
+				NOOP_HOOKS,
+				[],
+				3,
+				undefined,
+				callbacks,
+			);
+
+			expect(sessions).toEqual([{ id: "issue-1", sessionId: "session-reviewer" }]);
+		});
+
+		it("calls onImplementSession with undefined when implementer produces no session", async () => {
+			const sessions: Array<{ id: string; sessionId?: string }> = [];
+			const callbacks: ExecuteLabelCallbacks = {
+				onImplementSession: (id, sessionId) => {
+					sessions.push({ id, sessionId });
+					return Promise.resolve();
+				},
+			};
+
+			// Sandbox that returns no session in iterations
+			const createSandbox: CreateSandboxFn = async () =>
+				mockSandbox(async () => ({
+					stdout: "",
+					commits: [{ sha: "abc" }],
+					iterations: [{}], // no sessionId
+					logFilePath: undefined,
+				}));
+
+			await runExecutionPhase(
+				[{ id: "issue-1", title: "Fix A", branch: "branch-a" }],
+				createSandbox,
+				NOOP_SANDBOX,
+				NOOP_HOOKS,
+				[],
+				3,
+				undefined,
+				callbacks,
+			);
+
+			expect(sessions).toEqual([{ id: "issue-1", sessionId: undefined }]);
+		});
+
+		it("calls onReviewSession with undefined when reviewer produces no session", async () => {
+			const sessions: Array<{ id: string; sessionId?: string }> = [];
+			const callbacks: ExecuteLabelCallbacks = {
+				onReviewSession: (id, sessionId) => {
+					sessions.push({ id, sessionId });
+					return Promise.resolve();
+				},
+			};
+
+			const createSandbox: CreateSandboxFn = async () =>
+				mockSandbox(async (opts) => {
+					if (opts.name === "implementer") {
+						return mockRunResult([{ sha: "abc" }], "ses-impl");
+					}
+					// Reviewer returns empty iterations (no session)
+					return {
+						stdout: "",
+						commits: [],
+						iterations: [{}],
+						logFilePath: undefined,
+					};
+				});
+
+			await runExecutionPhase(
+				[{ id: "issue-1", title: "Fix A", branch: "branch-a" }],
+				createSandbox,
+				NOOP_SANDBOX,
+				NOOP_HOOKS,
+				[],
+				3,
+				undefined,
+				callbacks,
+			);
+
+			expect(sessions).toEqual([{ id: "issue-1", sessionId: undefined }]);
+		});
+
+		it("calls onImplementSession before onReviewStart", async () => {
+			const order: string[] = [];
+			const callbacks: ExecuteLabelCallbacks = {
+				onImplementSession: async (id) => {
+					order.push(`session:${id}`);
+				},
+				onReviewStart: async (id) => {
+					order.push(`review:${id}`);
+				},
+			};
+
+			const { sandbox } = mockSandboxWithCapture();
+
+			await runExecutionPhase(
+				[{ id: "issue-1", title: "Fix A", branch: "branch-a" }],
+				async () => sandbox,
+				NOOP_SANDBOX,
+				NOOP_HOOKS,
+				[],
+				3,
+				undefined,
+				callbacks,
+			);
+
+			expect(order).toEqual(["session:issue-1", "review:issue-1"]);
+		});
+
+		it("falls back to fresh implementer when session is stale", async () => {
+			const { sandbox, runs } = mockSandboxWithCapture();
+			const callbacks: ExecuteLabelCallbacks = {
+				// Session is stale (file missing)
+				onValidateSession: async () => false,
+			};
+
+			await runExecutionPhase(
+				[
+					{
+						id: "issue-1",
+						title: "Fix A",
+						branch: "branch-a",
+						implementSession: "ses-stale",
+					},
+				],
+				async () => sandbox,
+				NOOP_SANDBOX,
+				NOOP_HOOKS,
+				[],
+				3,
+				undefined,
+				callbacks,
+			);
+
+			const implementRun = runs.find((r) => r.name === "implementer");
+			// Should NOT pass the stale session
+			expect(implementRun?.resumeSession).toBeUndefined();
+		});
+
+		it("falls back to fresh reviewer when session is stale", async () => {
+			const { sandbox, runs } = mockSandboxWithCapture();
+			const callbacks: ExecuteLabelCallbacks = {
+				onValidateSession: async () => false,
+			};
+
+			await runExecutionPhase(
+				[
+					{
+						id: "issue-1",
+						title: "Fix A",
+						branch: "branch-a",
+						skipImplementer: true,
+						reviewSession: "ses-stale",
+					},
+				],
+				async () => sandbox,
+				NOOP_SANDBOX,
+				NOOP_HOOKS,
+				[],
+				3,
+				undefined,
+				callbacks,
+			);
+
+			const reviewRun = runs.find((r) => r.name === "reviewer");
+			// Should NOT pass the stale session
+			expect(reviewRun?.resumeSession).toBeUndefined();
+		});
+
+		it("completes issue even when reviewer produces 0 commits (skipImplementer)", async () => {
+			// Sandbox that returns no commits for reviewer
+			const createSandbox: CreateSandboxFn = async () =>
+				mockSandbox(async (opts) => {
+					if (opts.name === "implementer") {
+						return mockRunResult([{ sha: "abc" }]);
+					}
+					// Reviewer returns 0 commits
+					return mockRunResult([]);
+				});
+
+			const result = await runExecutionPhase(
+				[
+					{
+						id: "issue-1",
+						title: "Fix A",
+						branch: "branch-a",
+						skipImplementer: true,
+					},
+				],
+				createSandbox,
+				NOOP_SANDBOX,
+				NOOP_HOOKS,
+				[],
+				3,
+			);
+
+			// Should still be completed (branch already has commits from prior run)
+			expect(result).toHaveLength(1);
+			expect(result[0]?.id).toBe("issue-1");
+		});
 	});
 });

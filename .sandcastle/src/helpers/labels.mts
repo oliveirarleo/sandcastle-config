@@ -47,6 +47,177 @@ export function stripLabelsCmd(): string {
 }
 
 // ---------------------------------------------------------------------------
+// Executable label operations
+// ---------------------------------------------------------------------------
+
+/**
+ * Add a sandcastle phase label to a bead issue.
+ * Commits beads export after the mutation.
+ */
+export async function addLabel(
+	issueId: string,
+	label: string,
+	deps?: { exec?: (cmd: string) => Promise<string>; commitBeadsExport?: () => Promise<void> },
+): Promise<void> {
+	const ex = deps?.exec ?? defaultExec;
+	await ex(`bd label add "${issueId}" ${label}`);
+	const commit = deps?.commitBeadsExport ?? commitBeadsExportIfDirty;
+	await commit();
+}
+
+/** Return the lifecycle order index for a sandcastle label. */
+const LIFECYCLE_ORDER: Record<string, number> = {
+	[PLANNED]: 0,
+	[EXECUTING]: 1,
+	[REVIEWING]: 2,
+	[EXECUTED]: 3,
+	[MERGED]: 4,
+};
+
+/**
+ * Return the current sandcastle phase label for an issue, or null if none.
+ * When multiple sandcastle labels are present, returns the one furthest
+ * along in the lifecycle (planned < executing < reviewing < executed < merged).
+ */
+export function getResumePhase(issue: BeadsIssue): string | null {
+	const sandcastleLabels = (issue.labels ?? []).filter((lbl) =>
+		lbl.startsWith(sandcastleLabelPrefix),
+	);
+	if (sandcastleLabels.length === 0) return null;
+	// Return the furthest-along label in the lifecycle
+	return sandcastleLabels.reduce((best, current) => {
+		return (LIFECYCLE_ORDER[current] ?? -1) > (LIFECYCLE_ORDER[best] ?? -1) ? current : best;
+	});
+}
+
+// Valid transitions in the sandcastle label state machine.
+const VALID_TRANSITIONS: Record<string, Set<string>> = {
+	[PLANNED]: new Set([EXECUTING]),
+	[EXECUTING]: new Set([REVIEWING]),
+	[REVIEWING]: new Set([EXECUTED]),
+	[EXECUTED]: new Set([MERGED]),
+};
+
+/**
+ * Validate a state machine transition between two sandcastle labels.
+ * Throws if the transition is not allowed.
+ */
+export function validateTransition(from: string, to: string): void {
+	const allowed = VALID_TRANSITIONS[from];
+	if (!allowed || !allowed.has(to)) {
+		throw new Error(`Invalid transition: ${from} → ${to}`);
+	}
+}
+
+/**
+ * Set a metadata key-value pair on a bead issue.
+ * Commits beads export after the mutation.
+ */
+export async function setMetadata(
+	issueId: string,
+	key: string,
+	value: string,
+	deps?: { exec?: (cmd: string) => Promise<string>; commitBeadsExport?: () => Promise<void> },
+): Promise<void> {
+	const ex = deps?.exec ?? defaultExec;
+	await ex(`bd update "${issueId}" --set-metadata ${key}=${value}`);
+	const commit = deps?.commitBeadsExport ?? commitBeadsExportIfDirty;
+	await commit();
+}
+
+/**
+ * Get a metadata value for a key from a bead issue.
+ */
+export async function getMetadata(
+	issueId: string,
+	key: string,
+	deps?: { exec?: (cmd: string) => Promise<string> },
+): Promise<string | undefined> {
+	const ex = deps?.exec ?? defaultExec;
+	const stdout = await ex(`bd show "${issueId}" --json`);
+	try {
+		const parsed = JSON.parse(stdout);
+		const metadata = parsed?.data?.[0]?.metadata;
+		return metadata?.[key] ?? undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+/**
+ * Strip all sandcastle:* labels from every issue in the database.
+ * Commits beads export after cleanup.
+ */
+export async function cleanupAllSandcastleLabels(deps?: {
+	exec?: (cmd: string) => Promise<string>;
+	commitBeadsExport?: () => Promise<void>;
+}): Promise<void> {
+	const ex = deps?.exec ?? defaultExec;
+	const stdout = await ex("bd label list-all");
+	const sandcastleLabels = stdout
+		.split("\n")
+		.filter((line) => line.trim().startsWith(sandcastleLabelPrefix));
+	for (const label of sandcastleLabels) {
+		await ex(`bd label remove ${label.trim()}`);
+	}
+	const commit = deps?.commitBeadsExport ?? commitBeadsExportIfDirty;
+	await commit();
+}
+
+/**
+ * Check if a sandcastle label exists on a bead issue.
+ */
+export async function hasLabel(
+	issueId: string,
+	label: string,
+	deps?: { exec?: (cmd: string) => Promise<string> },
+): Promise<boolean> {
+	const ex = deps?.exec ?? defaultExec;
+	const stdout = await ex(`bd label list "${issueId}"`);
+	return stdout.split("\n").some((line) => line.trim() === label);
+}
+
+/**
+ * Remove a sandcastle phase label from a bead issue.
+ * Commits beads export after the mutation.
+ */
+export async function removeLabel(
+	issueId: string,
+	label: string,
+	deps?: { exec?: (cmd: string) => Promise<string>; commitBeadsExport?: () => Promise<void> },
+): Promise<void> {
+	const ex = deps?.exec ?? defaultExec;
+	await ex(`bd label remove "${issueId}" ${label}`);
+	const commit = deps?.commitBeadsExport ?? commitBeadsExportIfDirty;
+	await commit();
+}
+
+// ---------------------------------------------------------------------------
+// Default implementations
+// ---------------------------------------------------------------------------
+
+import { exec } from "node:child_process";
+import { promisify } from "node:util";
+
+const execAsync = promisify(exec);
+
+async function defaultExec(cmd: string): Promise<string> {
+	const { stdout } = await execAsync(cmd);
+	return stdout.trim();
+}
+
+async function commitBeadsExportIfDirty(): Promise<void> {
+	try {
+		const { stdout } = await execAsync("git status --porcelain .beads/issues.jsonl");
+		if (!stdout.trim()) return;
+		await execAsync("git add .beads/issues.jsonl");
+		await execAsync('git commit -m "chore: update beads export"');
+	} catch {
+		// Non-fatal — best-effort commit
+	}
+}
+
+// ---------------------------------------------------------------------------
 // Resume routing helpers
 // ---------------------------------------------------------------------------
 

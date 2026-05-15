@@ -10,7 +10,7 @@
 		"format": ".sandcastle/bin/biome format --write",
 		"build:sc-image": "sandcastle docker build-image --dockerfile .sandcastle/Containerfile",
 		"sc": "tsx .sandcastle/src/main.mts",
-		"sandcastle:cleanup": "bd label list-all | grep 'sandcastle:' | while IFS= read -r label; do bd label remove \"$label\"; done",
+		"sandcastle:cleanup": "tsx .sandcastle/src/scripts/cleanup-labels.mts",
 		"typecheck": "tsc --noEmit"
 	},
 	"keywords": [],

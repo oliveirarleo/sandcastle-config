@@ -19,6 +19,18 @@ export const PlannerOutputSchema = z.object({
 });
 
 export type BeadsIssue = z.infer<typeof BeadsIssueSchema>;
-export type PlannerIssue = z.infer<typeof PlannerIssueSchema>;
+
+/** A planned issue extended with optional resume session data.
+ *
+ * The ZodSchema only covers fields from the planner output. Resume fields
+ * are populated internally by the execute phase based on issue metadata. */
+export interface PlannerIssue extends z.infer<typeof PlannerIssueSchema> {
+	/** Resume session ID for the implementer agent, or undefined for fresh start. */
+	implementSession?: string;
+	/** Resume session ID for the reviewer agent, or undefined for fresh start. */
+	reviewSession?: string;
+	/** When true, skip the implementer and go straight to the reviewer. */
+	skipImplementer?: boolean;
+}
 
 export type RunSandbox = (options: RunOptions) => Promise<RunResult>;

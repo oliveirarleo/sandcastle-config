@@ -22,10 +22,10 @@ index de05f314bb32d8276b917bec5f989e6d5742ce9f..9afacb233293026f5a52a6ea05a0f484
          };
      })),
 diff --git a/dist/Orchestrator.js b/dist/Orchestrator.js
-index 9ebc1e3d68f9502b0bf070c9bde7d9518e579dc6..b3fd77c9b63f0b6e656ed4d1cb8e714cb40b24b0 100644
+index 8ba9c43ee9f020309ed77d22bf36bad7dfcdea9c..54b7b712f94469a8b94892ce536a8e2497caf421 100644
 --- a/dist/Orchestrator.js
 +++ b/dist/Orchestrator.js
-@@ -213,6 +213,7 @@
+@@ -212,6 +212,7 @@ export const orchestrate = (options) => {
                  const { result: agentOutput, sessionId } = yield* invokeAgent(ctx.sandbox, ctx.sandboxRepoDir, fullPrompt, provider, idleTimeoutMs, onText, onToolCall, onIdleWarning, options._idleWarningIntervalMs, iterationResumeSession, options.signal);
                  // Flush any remaining buffered text deltas
                  textBuffer.dispose();
@@ -33,3 +33,64 @@ index 9ebc1e3d68f9502b0bf070c9bde7d9518e579dc6..b3fd77c9b63f0b6e656ed4d1cb8e714c
                  yield* display.status(label("Agent stopped"), "info");
                  // Capture session while sandbox is still alive
                  let sessionFilePath;
+diff --git a/dist/createSandbox.d.ts b/dist/createSandbox.d.ts
+index f80ea20e2b14c55f577e8d2cbe842999aaa3a6a1..3445630d1cfaee6799f0e848905022b55fffe055 100644
+--- a/dist/createSandbox.d.ts
++++ b/dist/createSandbox.d.ts
+@@ -55,6 +55,8 @@ export interface SandboxRunOptions {
+     readonly name?: string;
+     /** Logging mode. */
+     readonly logging?: LoggingOption;
++    /** Resume a prior Claude Code session by ID. The session JSONL must exist on the host. Incompatible with maxIterations > 1. */
++    readonly resumeSession?: string;
+     /**
+      * An `AbortSignal` that cancels the run when aborted.
+      *
+diff --git a/dist/createSandbox.js b/dist/createSandbox.js
+index d5eea1111ea63f1b0ef0f7dacf36711f40a1ece0..bde488c58c803e3deef62e0337f6c8e4a4a8a3bc 100644
+--- a/dist/createSandbox.js
++++ b/dist/createSandbox.js
+@@ -1,11 +1,13 @@
+ import { NodeContext, NodeFileSystem } from "@effect/platform-node";
+ import { join } from "node:path";
++import { existsSync } from "node:fs";
+ import { Effect, Layer, Ref } from "effect";
+ import { ClackDisplay, Display, FileDisplay, SilentDisplay, } from "./Display.js";
+ import { resolveEnv } from "./EnvResolver.js";
+ import { mergeProviderEnv } from "./mergeProviderEnv.js";
+ import { orchestrate } from "./Orchestrator.js";
+ import { defaultSessionPathsLayer } from "./SessionPaths.js";
++import { hostSessionStore } from "./SessionStore.js";
+ import { callbackAgentStreamEmitterLayer, noopAgentStreamEmitterLayer, } from "./AgentStreamEmitter.js";
+ import { substitutePromptArgs, validateNoArgsWithInlinePrompt, validateNoBuiltInArgOverride, BUILT_IN_PROMPT_ARG_KEYS, } from "./PromptArgumentSubstitution.js";
+ import { resolvePrompt } from "./PromptResolver.js";
+@@ -33,7 +35,20 @@ const buildSandboxHandle = (ctx, close) => {
+         run: async (runOptions) => {
+             // If signal is already aborted, reject immediately without any setup
+             runOptions.signal?.throwIfAborted();
+-            const { agent: provider, prompt, promptFile, maxIterations = 1, } = runOptions;
++            const { agent: provider, prompt, promptFile, maxIterations = 1, resumeSession, } = runOptions;
++            // Validate: resumeSession + maxIterations > 1 is not allowed
++            if (resumeSession && maxIterations > 1) {
++                throw new Error("resumeSession cannot be combined with maxIterations > 1. " +
++                    "Resume applies to iteration 1 only; multi-iteration resume semantics are not supported.");
++            }
++            // Validate: resumeSession file must exist on the host
++            if (resumeSession) {
++                const hStore = hostSessionStore(hostRepoDir);
++                const sessionPath = hStore.sessionFilePath(resumeSession);
++                if (!existsSync(sessionPath)) {
++                    throw new Error(`resumeSession "${resumeSession}" not found: expected session file at ${sessionPath}`);
++                }
++            }
+             const resolved = await Effect.runPromise(resolvePrompt({ prompt, promptFile }).pipe(Effect.provide(NodeContext.layer)));
+             const rawPrompt = resolved.text;
+             const isInlinePrompt = resolved.source === "inline";
+@@ -98,6 +113,7 @@ const buildSandboxHandle = (ctx, close) => {
+                         idleTimeoutSeconds: runOptions.idleTimeoutSeconds,
+                         name: runOptions.name,
+                         signal: runOptions.signal,
++                        resumeSession,
+                         skipPromptExpansion: isInlinePrompt,
+                     });
+                 }).pipe(Effect.provide(runLayer)));
