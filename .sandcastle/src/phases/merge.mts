@@ -28,7 +28,7 @@ async function execShell(cmd: string): Promise<{ stdout: string; stderr: string 
  * Returns trimmed stdout from the shell command.
  */
 async function defaultBdExec(cmd: string): Promise<string> {
-	const { stdout } = await $`sh -c ${cmd}`.quiet();
+	const { stdout } = await execShell(cmd);
 	return stdout.trim();
 }
 
@@ -105,6 +105,7 @@ export async function verifyMergedIssues(
 	},
 ): Promise<PlannerIssue[]> {
 	const reverted: PlannerIssue[] = [];
+	const ex = deps?.exec ?? defaultBdExec;
 
 	for (const issue of issues) {
 		try {
@@ -115,12 +116,10 @@ export async function verifyMergedIssues(
 
 				if (!closed) {
 					// Branch merged but ticket open — close it
-					const ex = deps?.exec ?? defaultBdExec;
 					await ex(`bd close "${issue.id}" --reason "Safety net: branch already merged"`);
 				}
 			} else {
 				// Label says merged but branch NOT merged — revert label
-				const ex = deps?.exec ?? defaultBdExec;
 				await ex(`bd label remove "${issue.id}" ${MERGED}`);
 				await ex(`bd label add "${issue.id}" ${EXECUTED}`);
 				reverted.push(issue);

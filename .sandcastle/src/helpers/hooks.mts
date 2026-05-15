@@ -47,6 +47,9 @@ const ENV_KEYS: Record<HookType, string> = {
 // Hook resolvers
 // ---------------------------------------------------------------------------
 
+/** Injectable shell executor for testability. */
+export type HookExec = (cmd: string) => Promise<string>;
+
 /**
  * Resolve a hook command for a given issue.
  *
@@ -55,9 +58,9 @@ const ENV_KEYS: Record<HookType, string> = {
 export async function getHookCommand(
 	issueId: string,
 	hookType: HookType,
-	deps?: { exec?: (cmd: string) => Promise<string> },
+	deps?: { exec?: HookExec },
 ): Promise<string | undefined> {
-	// 1. Check issue metadata
+	// Issue metadata takes priority
 	const metadataKey = METADATA_KEYS[hookType];
 	try {
 		const metadataValue = await getMetadata(issueId, metadataKey, deps);
@@ -66,12 +69,10 @@ export async function getHookCommand(
 		// bd unavailable or database unreachable — fall through to env var
 	}
 
-	// 2. Check environment variable
-	const envKey = ENV_KEYS[hookType];
-	const envValue = process.env[envKey];
+	// Fall back to environment variable
+	const envValue = process.env[ENV_KEYS[hookType]];
 	if (envValue) return envValue;
 
-	// 3. No hook configured
 	return undefined;
 }
 
@@ -118,16 +119,16 @@ export async function runPhaseHook(
 	issueId: string,
 	hookType: HookType,
 	logger?: Logger,
-	deps?: { exec?: (cmd: string) => Promise<string> },
+	deps?: { exec?: HookExec },
 ): Promise<void> {
 	try {
 		const command = await getHookCommand(issueId, hookType, deps);
 		if (!command) return;
 
-		const hookLabel = `sandcastle:${hookType}`;
-		await runHook(command, hookLabel, issueId, logger);
+		await runHook(command, `sandcastle:${hookType}`, issueId, logger);
 	} catch (err) {
-		// Absolute safety net: hooks must never throw.
+		// Belt-and-suspenders safety net: hooks must never throw, even if
+		// getHookCommand or runHook somehow escape their own error handling.
 		logger?.warn(
 			{ err, issueId, hookType },
 			`Unexpected error in hook resolver — hook skipped: ${hookType}`,

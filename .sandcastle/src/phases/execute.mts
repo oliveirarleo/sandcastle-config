@@ -158,12 +158,11 @@ export async function runExecutionPhase(
 			}
 
 			// ---- Reviewer (only if implementer produced commits or was skipped) ----
-			const hasCommits = implementResult
-				? implementResult.commits.length > 0
-				: // When skipping implementer, we assume prior commits exist (the issue
-					// was already mid-review). If there are truly no commits, the merge
-					// phase will skip this issue.
-					true;
+			// When skipImplementer, we assume prior commits exist (the issue was already
+			// mid-review). If there are truly no commits, the merge phase will skip this issue.
+			const hasCommits = issue.skipImplementer || (implementResult?.commits.length ?? 0) > 0;
+
+			let reviewResult: SandboxRunResult | undefined;
 
 			if (hasCommits) {
 				// Run Biome linter + formatter on the implementer's changes.
@@ -183,7 +182,7 @@ export async function runExecutionPhase(
 				await labelCallbacks?.onReviewStart?.(issue.id);
 				lastPhaseLabel = REVIEWING;
 
-				const reviewResult = await sandbox.run({
+				reviewResult = await sandbox.run({
 					name: "reviewer",
 					maxIterations: 1,
 					agent: pi("opencode-go/deepseek-v4-pro"),
@@ -195,13 +194,14 @@ export async function runExecutionPhase(
 				// Capture reviewer session
 				const reviewSessionId = reviewResult.iterations[0]?.sessionId;
 				await labelCallbacks?.onReviewSession?.(issue.id, reviewSessionId);
+			}
 
-				await labelCallbacks?.onExecuteComplete?.(issue.id);
-				lastPhaseLabel = EXECUTED;
+			// Both paths: mark as executed and run post-execute hook
+			await labelCallbacks?.onExecuteComplete?.(issue.id);
+			lastPhaseLabel = EXECUTED;
+			await runPhaseHook(issue.id, "post_execute", logger);
 
-				// ---- Post-execute hook (non-fatal) ----
-				await runPhaseHook(issue.id, "post_execute", logger);
-
+			if (hasCommits && reviewResult) {
 				const implementCommits = implementResult?.commits ?? [];
 				return {
 					...reviewResult,
@@ -217,14 +217,6 @@ export async function runExecutionPhase(
 			if (!implementResult) {
 				return { stdout: "", commits: [], iterations: [], logFilePath: undefined };
 			}
-
-			// Zero-commit: implementer produced no output. Mark as executed so the label
-			// doesn't stay stuck at 'executing' on resume. No reviewer label is set.
-			await labelCallbacks?.onExecuteComplete?.(issue.id);
-			lastPhaseLabel = EXECUTED;
-
-			// ---- Post-execute hook (non-fatal) ----
-			await runPhaseHook(issue.id, "post_execute", logger);
 
 			return implementResult;
 		} catch (err) {
