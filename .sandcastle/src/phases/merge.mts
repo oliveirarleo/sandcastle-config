@@ -1,6 +1,7 @@
 import { pi, type SandboxHooks, type SandboxProvider } from "@ai-hero/sandcastle";
 import type { Logger } from "pino";
 import { $ } from "zx";
+import { runPhaseHook } from "../helpers/hooks.mts";
 import { EXECUTED, MERGED } from "../helpers/labels.mts";
 import { formatErrorMessage, type Notifier } from "../helpers/notifier.mts";
 import type { PlannerIssue, RunSandbox } from "../types.mts";
@@ -159,6 +160,9 @@ export async function runMergePhase(
 				continue;
 			}
 
+			// ---- Pre-merge hook (non-fatal) ----
+			await runPhaseHook(issue.id, "pre_merge", logger);
+
 			await runSandbox({
 				hooks,
 				sandbox: sandboxProvider,
@@ -172,6 +176,9 @@ export async function runMergePhase(
 					ISSUES: `- ${issue.id}: ${issue.title}`,
 				},
 			});
+
+			// ---- Post-merge hook (non-fatal) ----
+			await runPhaseHook(issue.id, "post_merge", logger);
 
 			notifier
 				?.send({

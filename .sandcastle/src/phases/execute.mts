@@ -8,6 +8,7 @@ import {
 import type { Logger } from "pino";
 import { $ } from "zx";
 import { runWithConcurrencyLimit } from "../helpers/concurrency.mts";
+import { runPhaseHook } from "../helpers/hooks.mts";
 import { EXECUTED, EXECUTING, REVIEWING } from "../helpers/labels.mts";
 import { formatErrorMessage, type Notifier } from "../helpers/notifier.mts";
 import type { PlannerIssue } from "../types.mts";
@@ -128,6 +129,9 @@ export async function runExecutionPhase(
 		let implementResult: SandboxRunResult | undefined;
 
 		try {
+			// ---- Pre-execute hook (non-fatal) ----
+			await runPhaseHook(issue.id, "pre_execute", logger);
+
 			// ---- Implementer ----
 			if (issue.skipImplementer) {
 				logger?.info({ issueId: issue.id }, "Skip implementer — resuming from review phase");
@@ -195,6 +199,9 @@ export async function runExecutionPhase(
 				await labelCallbacks?.onExecuteComplete?.(issue.id);
 				lastPhaseLabel = EXECUTED;
 
+				// ---- Post-execute hook (non-fatal) ----
+				await runPhaseHook(issue.id, "post_execute", logger);
+
 				const implementCommits = implementResult?.commits ?? [];
 				return {
 					...reviewResult,
@@ -215,6 +222,10 @@ export async function runExecutionPhase(
 			// doesn't stay stuck at 'executing' on resume. No reviewer label is set.
 			await labelCallbacks?.onExecuteComplete?.(issue.id);
 			lastPhaseLabel = EXECUTED;
+
+			// ---- Post-execute hook (non-fatal) ----
+			await runPhaseHook(issue.id, "post_execute", logger);
+
 			return implementResult;
 		} catch (err) {
 			// Revert phase label on crash so the issue reappears at the right

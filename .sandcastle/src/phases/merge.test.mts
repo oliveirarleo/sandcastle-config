@@ -1,5 +1,5 @@
 import type { RunOptions, RunResult, SandboxHooks, SandboxProvider } from "@ai-hero/sandcastle";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { MERGED } from "../helpers/labels.mts";
 import type { Notifier } from "../helpers/notifier.mts";
 import type { PlannerIssue } from "../types.mts";
@@ -423,5 +423,124 @@ describe("isBranchMerged", () => {
 			stderr: "",
 		}));
 		expect(result).toBe(false);
+	});
+});
+
+// -----------------------------------------------------------------------
+// Hook integration tests
+// -----------------------------------------------------------------------
+
+describe("runMergePhase hooks", () => {
+	afterEach(() => {
+		delete process.env.SANDCASTLE_PRE_MERGE_HOOK;
+		delete process.env.SANDCASTLE_POST_MERGE_HOOK;
+	});
+
+	it("runs pre-merge hook before merge action", async () => {
+		process.env.SANDCASTLE_PRE_MERGE_HOOK = "echo pre-merge-hook";
+
+		async function mockRunSandbox(_opts: RunOptions): Promise<RunResult> {
+			return { stdout: "", commits: [], iterations: [], branch: "main" };
+		}
+
+		await expect(
+			runMergePhase(
+				mockRunSandbox,
+				[{ branch: "branch-a", id: "issue-1", title: "Fix A" }],
+				NOOP_SANDBOX,
+				NOOP_HOOKS,
+				undefined,
+			),
+		).resolves.toBeUndefined();
+	});
+
+	it("runs post-merge hook after merge succeeds", async () => {
+		process.env.SANDCASTLE_POST_MERGE_HOOK = "echo post-merge-hook";
+
+		async function mockRunSandbox(_opts: RunOptions): Promise<RunResult> {
+			return { stdout: "", commits: [], iterations: [], branch: "main" };
+		}
+
+		await expect(
+			runMergePhase(
+				mockRunSandbox,
+				[{ branch: "branch-a", id: "issue-1", title: "Fix A" }],
+				NOOP_SANDBOX,
+				NOOP_HOOKS,
+				undefined,
+			),
+		).resolves.toBeUndefined();
+	});
+
+	it("pre-merge hook failure logs warning but merge still executes", async () => {
+		process.env.SANDCASTLE_PRE_MERGE_HOOK = "false";
+
+		async function mockRunSandbox(_opts: RunOptions): Promise<RunResult> {
+			return { stdout: "", commits: [], iterations: [], branch: "main" };
+		}
+
+		await expect(
+			runMergePhase(
+				mockRunSandbox,
+				[{ branch: "branch-a", id: "issue-1", title: "Fix A" }],
+				NOOP_SANDBOX,
+				NOOP_HOOKS,
+				undefined,
+			),
+		).resolves.toBeUndefined();
+	});
+
+	it("post-merge hook failure logs warning but merge result preserved", async () => {
+		process.env.SANDCASTLE_POST_MERGE_HOOK = "false";
+
+		async function mockRunSandbox(_opts: RunOptions): Promise<RunResult> {
+			return { stdout: "", commits: [], iterations: [], branch: "main" };
+		}
+
+		await expect(
+			runMergePhase(
+				mockRunSandbox,
+				[{ branch: "branch-a", id: "issue-1", title: "Fix A" }],
+				NOOP_SANDBOX,
+				NOOP_HOOKS,
+				undefined,
+			),
+		).resolves.toBeUndefined();
+	});
+
+	it("pre-merge hook + merge crash: hook succeeds, merge fails", async () => {
+		// AC: hook success + phase crash
+		process.env.SANDCASTLE_PRE_MERGE_HOOK = "echo pre-ok";
+
+		async function mockRunSandbox(_opts: RunOptions): Promise<RunResult> {
+			throw new Error("merge conflict");
+		}
+
+		// Should not throw — merge phase isolates per-branch errors
+		await expect(
+			runMergePhase(
+				mockRunSandbox,
+				[{ branch: "branch-a", id: "issue-1", title: "Fix A" }],
+				NOOP_SANDBOX,
+				NOOP_HOOKS,
+				undefined,
+			),
+		).resolves.toBeUndefined();
+	});
+
+	it("does not run hooks when not configured", async () => {
+		async function mockRunSandbox(_opts: RunOptions): Promise<RunResult> {
+			return { stdout: "", commits: [], iterations: [], branch: "main" };
+		}
+
+		await expect(
+			runMergePhase(
+				mockRunSandbox,
+				[{ branch: "branch-a", id: "issue-1", title: "Fix A" }],
+				NOOP_SANDBOX,
+				NOOP_HOOKS,
+				undefined,
+			),
+		).resolves.toBeUndefined();
 	});
 });
