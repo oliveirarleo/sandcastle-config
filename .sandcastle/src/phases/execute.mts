@@ -8,7 +8,7 @@ import {
 import type { Logger } from "pino";
 import { $ } from "zx";
 import { runWithConcurrencyLimit } from "../helpers/concurrency.mts";
-import { formatErrorMessage, type Notifier } from "../helpers/notifier.mts";
+import { formatErrorMessage, type Notifier, notify } from "../helpers/notifier.mts";
 import type { PlannerIssue } from "../types.mts";
 
 $.verbose = false;
@@ -190,15 +190,10 @@ export async function runExecutionPhase(
 				};
 			}
 
-			// implementResult is always defined at this point because:
-			// - if skipImplementer=true, hasCommits evaluates to true and we return early above
-			// - if skipImplementer=false, implementResult was set by sandbox.run()
-			// The guard exists only for TypeScript narrowing — at runtime it's never reached.
+			// TypeScript can't infer that implementResult is always defined here:
+			// skipImplementer=true returns early via hasCommits; false means sandbox.run() set it.
 			/* v8 ignore next 2 */
-			if (!implementResult) {
-				return { stdout: "", commits: [], iterations: [], logFilePath: undefined };
-			}
-			return implementResult;
+			return implementResult ?? { stdout: "", commits: [], iterations: [], logFilePath: undefined };
 		} finally {
 			await sandbox.close();
 		}
@@ -211,14 +206,12 @@ export async function runExecutionPhase(
 			const issue = issues[i];
 			if (issue) {
 				logger?.error({ err: outcome.reason }, `✗ ${issue.id} (${issue.branch}) failed`);
-				notifier
-					?.send({
-						level: "error",
-						title: `Execute failed: ${issue.id}`,
-						message: `Issue ${issue.id} (${issue.branch}) failed during execution: ${formatErrorMessage(outcome.reason)}`,
-						tags: ["execute", "sandcastle", "error"],
-					})
-					.catch(() => {});
+				notify(notifier, {
+					level: "error",
+					title: `Execute failed: ${issue.id}`,
+					message: `Issue ${issue.id} (${issue.branch}) failed during execution: ${formatErrorMessage(outcome.reason)}`,
+					tags: ["execute", "sandcastle", "error"],
+				});
 			}
 		}
 	}

@@ -12,7 +12,7 @@ import {
 	sandboxProvider,
 } from "./config.mts";
 import { waitForOpenIssues } from "./helpers/issues.mts";
-import { createNotifierFromEnv, formatErrorMessage } from "./helpers/notifier.mts";
+import { createNotifierFromEnv, formatErrorMessage, notify } from "./helpers/notifier.mts";
 import { runExecutionPhase } from "./phases/execute.mts";
 import { runMergePhase } from "./phases/merge.mts";
 import { runPlanner } from "./phases/plan.mts";
@@ -54,14 +54,12 @@ export async function main(): Promise<void> {
 			issues = await runPlanner(sandcastle.run, sandboxProvider, hooks, logger);
 		} catch (err) {
 			logger.error({ err }, "Plan phase failed — exiting");
-			notifier
-				?.send({
-					level: "error",
-					title: "Plan phase failed",
-					message: `Planning phase failed: ${formatErrorMessage(err)}`,
-					tags: ["plan", "sandcastle", "error"],
-				})
-				.catch(() => {});
+			notify(notifier, {
+				level: "error",
+				title: "Plan phase failed",
+				message: `Planning phase failed: ${formatErrorMessage(err)}`,
+				tags: ["plan", "sandcastle", "error"],
+			});
 			break;
 		}
 
@@ -86,14 +84,12 @@ export async function main(): Promise<void> {
 			);
 		} catch (err) {
 			logger.error({ err }, "Execute phase failed — continuing");
-			notifier
-				?.send({
-					level: "error",
-					title: "Execute phase failed",
-					message: `Execution phase failed: ${formatErrorMessage(err)}`,
-					tags: ["execute", "sandcastle", "error"],
-				})
-				.catch(() => {});
+			notify(notifier, {
+				level: "error",
+				title: "Execute phase failed",
+				message: `Execution phase failed: ${formatErrorMessage(err)}`,
+				tags: ["execute", "sandcastle", "error"],
+			});
 			continue;
 		}
 
@@ -119,14 +115,12 @@ export async function main(): Promise<void> {
 			);
 		} catch (err) {
 			logger.error({ err }, "Merge phase failed — continuing");
-			notifier
-				?.send({
-					level: "error",
-					title: "Merge phase failed",
-					message: `Merge phase failed: ${formatErrorMessage(err)}`,
-					tags: ["merge", "sandcastle", "error"],
-				})
-				.catch(() => {});
+			notify(notifier, {
+				level: "error",
+				title: "Merge phase failed",
+				message: `Merge phase failed: ${formatErrorMessage(err)}`,
+				tags: ["merge", "sandcastle", "error"],
+			});
 			continue;
 		}
 

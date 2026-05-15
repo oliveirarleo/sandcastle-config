@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { NotificationSummary } from "./notifier.mts";
-import { NotifierRegistry, NtfyNotifier } from "./notifier.mts";
+import { NotifierRegistry, NtfyNotifier, notify } from "./notifier.mts";
 
 // ---------------------------------------------------------------------------
 // NtfyNotifier
@@ -178,16 +177,36 @@ describe("NotifierRegistry", () => {
 });
 
 // ---------------------------------------------------------------------------
-// NotificationSummary validation
+// notify helper
 // ---------------------------------------------------------------------------
 
-describe("NotificationSummary interface contract", () => {
-	it("accepts valid NotificationSummary shapes", () => {
-		const summaries: NotificationSummary[] = [
-			{ level: "info", title: "Test", message: "Test message" },
-			{ level: "warn", title: "Warn", message: "Warn message", tags: ["tag1"] },
-			{ level: "error", title: "Error", message: "Error message", tags: [] },
-		];
-		expect(summaries).toHaveLength(3);
+describe("notify", () => {
+	it("sends notification through the notifier", () => {
+		const sendMock = vi.fn().mockResolvedValue(undefined);
+		const notifier = { send: sendMock };
+
+		notify(notifier, { level: "info", title: "Test", message: "hello" });
+
+		expect(sendMock).toHaveBeenCalledTimes(1);
+		expect(sendMock).toHaveBeenCalledWith({
+			level: "info",
+			title: "Test",
+			message: "hello",
+		});
+	});
+
+	it("is a no-op when notifier is undefined", () => {
+		expect(() =>
+			notify(undefined, { level: "info", title: "Test", message: "hello" }),
+		).not.toThrow();
+	});
+
+	it("does not throw when the notifier rejects", () => {
+		const sendMock = vi.fn().mockRejectedValue(new Error("send failed"));
+		const notifier = { send: sendMock };
+
+		expect(() =>
+			notify(notifier, { level: "error", title: "Fail", message: "boom" }),
+		).not.toThrow();
 	});
 });

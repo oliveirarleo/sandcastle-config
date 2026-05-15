@@ -152,3 +152,15 @@ export function createNotifierFromEnv(): NotifierRegistry | undefined {
 export function formatErrorMessage(err: unknown): string {
 	return err instanceof Error ? err.message.slice(0, 500) : String(err).slice(0, 500);
 }
+
+/**
+ * Fire-and-forget notification dispatch.
+ *
+ * Sends a notification through the given notifier without awaiting or
+ * throwing. Notification failures are silently swallowed so they never
+ * crash or block the orchestrator loop.
+ */
+export function notify(notifier: Notifier | undefined, summary: NotificationSummary): void {
+	if (!notifier) return;
+	notifier.send(summary).catch(() => {});
+}
