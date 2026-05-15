@@ -33,6 +33,62 @@ index 8ba9c43ee9f020309ed77d22bf36bad7dfcdea9c..54b7b712f94469a8b94892ce536a8e24
                  yield* display.status(label("Agent stopped"), "info");
                  // Capture session while sandbox is still alive
                  let sessionFilePath;
+diff --git a/dist/SandboxLifecycle.js b/dist/SandboxLifecycle.js
+index df14e9afd4803b1f12d06bb1da5018e649fe4a92..1a6f810153aee911213e9520ea7b74dcda510d4a 100644
+--- a/dist/SandboxLifecycle.js
++++ b/dist/SandboxLifecycle.js
+@@ -201,17 +201,50 @@ export const withSandboxLifecycle = (options, work) => Effect.gen(function* () {
+             // Fast-forward host's current branch to the temp branch
+             yield* display.taskLog(`Merging to ${hostCurrentBranch}`, () => Effect.tryPromise({
+                 try: async () => {
++                    // Temp branch was created from HEAD and only has additional agent
++                    // commits, so the merge is always a fast-forward. However, git will
++                    // refuse if the host working tree has dirty modifications to files
++                    // that the merge touches (e.g. beads issue-tracker files that both
++                    // the agent and the host jj working copy modify). Stash the host's
++                    // dirty state before merging to work around this, then pop it back.
++                    let stashed = false;
+                     try {
++                        // Clear any stale unmerged index state from a prior failed run
++                        await execAsync(`git merge --abort`, { cwd: hostRepoDir }).catch(() => {});
++                        const { stdout: uuRaw } = await execAsync(
++                            `git ls-files --unmerged | awk '{print $4}' | sort -u`,
++                            { cwd: hostRepoDir }
++                        ).catch(() => ({ stdout: '' }));
++                        if (uuRaw.trim()) {
++                            await execAsync(`git add -f ${uuRaw.trim().split('\n').join(' ')}`, {
++                                cwd: hostRepoDir
++                            }).catch(() => {});
++                        }
++                        // Stash host dirty state to prevent git refusing the merge
++                        await execAsync(
++                            `git stash push --include-untracked -m 'sandcastle-pre-merge-${Date.now()}'`,
++                            { cwd: hostRepoDir }
++                        ).then(() => { stashed = true; }).catch(() => {});
++                        // Merge the temp branch (always ff-only, clean)
+                         await execAsync(`git merge "${resolvedBranch}"`, {
+                             cwd: hostRepoDir,
+                         });
+                     }
+-                    catch {
++                    catch (e) {
++                        const originalMsg = e instanceof Error ? e.message : String(e);
+                         throw new Error(`Merge of '${resolvedBranch}' onto '${hostCurrentBranch}' failed. ` +
++                            `${originalMsg} ` +
+                             `The temporary branch '${resolvedBranch}' has been preserved. ` +
+                             `To retry: git merge ${resolvedBranch}, ` +
+                             `then clean up: git branch -D ${resolvedBranch}`);
+                     }
++                    finally {
++                        // Restore stashed host dirty state. If the stash pop conflicts
++                        // with the merged result (e.g. beads files), the user resolves.
++                        if (stashed) {
++                            await execAsync(`git stash pop`, { cwd: hostRepoDir }).catch(() => {});
++                        }
++                    }
+                 },
+                 catch: (e) => new SyncError({
+                     message: String(e instanceof Error ? e.message : e),
 diff --git a/dist/createSandbox.d.ts b/dist/createSandbox.d.ts
 index f80ea20e2b14c55f577e8d2cbe842999aaa3a6a1..3445630d1cfaee6799f0e848905022b55fffe055 100644
 --- a/dist/createSandbox.d.ts

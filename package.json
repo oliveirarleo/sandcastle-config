@@ -19,13 +19,14 @@
 	"license": "ISC",
 	"pnpm": {
 		"patchedDependencies": {
-			"@ai-hero/sandcastle@0.5.10": "patches/@ai-hero__sandcastle@0.5.10.patch"
+			"@ai-hero/sandcastle": "patches/@ai-hero__sandcastle.patch"
 		}
 	},
 	"devDependencies": {
 		"@ai-hero/sandcastle": "^0.5.10",
 		"@biomejs/biome": "^2.4.15",
 		"@types/node": "^25.7.0",
+		"patch-package": "^8.0.1",
 		"tsx": "^4.21.0",
 		"typescript": "^6.0.3",
 		"vitest": "^4.1.6"
