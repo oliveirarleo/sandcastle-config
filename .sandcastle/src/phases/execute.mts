@@ -206,7 +206,7 @@ export async function runExecutionPhase(
 			// - if skipImplementer=true, hasCommits evaluates to true and we return early above
 			// - if skipImplementer=false, implementResult was set by sandbox.run()
 			// The guard exists only for TypeScript narrowing — at runtime it's never reached.
-			/* v8 ignore next 4 */
+			/* v8 ignore next 3 */
 			if (!implementResult) {
 				return { stdout: "", commits: [], iterations: [], logFilePath: undefined };
 			}
